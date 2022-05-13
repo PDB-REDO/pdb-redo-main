@@ -1,0 +1,7 @@
+#Refmac kill swith for PDB_REDO version 1.00
+#
+#Refmac does not stop unconditionally 
+stop 0
+#Refmac is killed if one of these conditions are met:
+rfactor 0.540
+rfree   0.540

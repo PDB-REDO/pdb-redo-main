@@ -1,0 +1,486 @@
+[RefAtoms]
+ -0.527   1.359   0.000  N N
+  0.000   0.000   0.000  C CA
+  1.525   0.000   0.000  C C
+  2.148   0.974  -0.429  O O
+[AARecords]
+GLY G    0    0 000000
+Richardsons rotamers GLY  1
+rotamer 100 %
+ALA A    1    0 100000
+  -0.53196  -0.77383  -1.19685 C CB
+Richardsons rotamers ALA  1
+rotamer 100 %
+SER S    2    1	110000
+  -0.52535  -0.77784  -1.20814 C CB
+  -0.10644  -0.17858  -2.42191 O OG
+Chi1     4
+   65  -65  180   90
+Richardsons rotamers SER  3
+rotamer 49 %  chi1   66. uEH
+rotamer 23 %  chi1 -179. uEH
+rotamer 28 %  chi1  -64. uEH
+CYS C    2    1 110000
+  -0.52479  -0.77711  -1.20908 C CB
+  -2.32697  -0.88550  -1.30269 S SG
+Chi1     3
+  -65  180   65
+Richardsons rotamers CYS  3
+rotamer 56 %  chi1  -65. uEH
+rotamer 18 %  chi1   65. uEH
+rotamer 26 %  chi1 -178. uEH
+VAL V    3    1 120000
+  -0.50245  -0.79966  -1.21697 C CB
+   0.11041  -2.19148  -1.22887 C CG1
+  -2.02124  -0.87767  -1.21217 C CG2
+Chi1     3
+  175  -63   60
+Richardsons rotamers VAL  3
+rotamer 76 %  chi1  176. uEH
+rotamer 18 %  chi1  -62. uEH
+rotamer 6 %   chi1   65. uEH
+THR T    3    1 120000
+  -0.50329  -0.80181  -1.21454 C CB
+  -0.03545  -0.18836  -2.42211 O OG1
+  -2.02327  -0.84799  -1.22977 C CG2
+Chi1     4
+  -58   65 -170  -25
+Richardsons rotamers THR  3
+rotamer 48 %  chi1   61. uEH
+rotamer 7 %   chi1 -173. uEH
+rotamer 45 %  chi1  -60. uEH
+PRO P    3    2 111000
+  -0.52421  -0.58479  -1.31306 C CB
+  -1.30807   0.53955  -1.92128 C CG   
+  -1.20365   1.69071  -0.95819 C CD   
+Chi1     3
+  -26   27    2
+Chi2     4
+  -36   37  -17    5  
+Richardsons rotamers PRO  2 
+rotamer 49 % chi1   27. chi2 -35. uEH
+rotamer 51 % chi1  -25. chi2  36. uEH
+ILE I    4    2 121000
+  -0.50078  -0.79841  -1.21890 C CB
+  -2.02924  -0.86219  -1.22253 C CG1
+   0.09660  -2.19695  -1.22027 C CG2
+  -2.60799  -1.55697  -2.43561 C CD1
+Chi1     4
+  -65   60 -170  100
+Chi2     3
+  170  -60   55
+Richardsons rotamers ILE  27
+rotamer 0 %   chi1   64. chi2   92. H 
+rotamer 7 %   chi1   65. chi2  172. H 
+rotamer 0 %   chi1   74. chi2  -74. H
+rotamer 14 %  chi1  -64. chi2  -61. H 
+rotamer 69 %  chi1  -68. chi2  167. H 
+rotamer 0 %   chi1  -81. chi2   55. H 
+rotamer 0 %   chi1 -162. chi2  -76. H 
+rotamer 4 %   chi1 -165. chi2  170. H 
+rotamer 5 %   chi1 -168. chi2   64. H 
+rotamer 0 %   chi1   60. chi2  -84. E 
+rotamer 13 %  chi1   62. chi2  171. E 
+rotamer 1 %   chi1   64. chi2   85. E 
+rotamer 17 %  chi1  -56. chi2  -61. E 
+rotamer 57 %  chi1  -60. chi2  170. E 
+rotamer 2 %   chi1  -56. chi2   93. E 
+rotamer 0 %   chi1 -176. chi2  -88. E 
+rotamer 9 %   chi1 -173. chi2  167. E 
+rotamer 1 %   chi1 -174. chi2   66. E 
+rotamer 0 %   chi1   68. chi2  -73. u
+rotamer 24 %  chi1   63. chi2  172. u
+rotamer 1 %   chi1   53. chi2   72. u
+rotamer 44 %  chi1  -62. chi2  171. u
+rotamer 18 %  chi1  -57. chi2  -59. u
+rotamer 1 %   chi1  -68. chi2   83. u
+rotamer 0 %   chi1 -162. chi2  -78. u
+rotamer 8 %   chi1 -168. chi2  168. u
+rotamer 3 %   chi1 -167. chi2   65. u
+LEU L    4    2 112000
+  -0.52343  -0.77614  -1.21058 C CB
+  -2.04408  -0.87161  -1.34786 C CG
+  -2.67328   0.51312  -1.33820 C CD1
+  -2.42354  -1.62849  -2.61137 C CD2
+Chi1     4
+   65  180 -100  -65
+Chi2     3
+  175   65  -65
+Richardsons rotamers LEU  8
+rotamer 65%  chi1  -66. chi2  174. uEH
+rotamer 0%   chi1  -83. chi2  -64. uEH
+rotamer 2%   chi1  -77. chi2   72. uEH
+rotamer 0%   chi1   73. chi2  165. uEH
+rotamer 0%   chi1   61. chi2   83. uEH
+rotamer 30%  chi1 -177. chi2   63. uEH
+rotamer 1%   chi1 -172. chi2  153. uEH
+rotamer 0%   chi1 -172. chi2  -75. uEH
+ASP D    4    2 112000
+  -0.52418  -0.77669  -1.20975 C CB
+  -2.03774  -0.78661  -1.28390 C CG
+  -2.58295  -1.35278  -2.25401 O OD1
+  -2.68282  -0.22991  -0.37109 O OD2
+Chi1     3
+  -68  190   60
+Chi2     7
+  -10  -50  -30   10   30  -90   90
+Richardsons rotamers ASP  8
+rotamer 52 %  chi1  -69. chi2  -15. uEH
+rotamer 99 %  chi1  -69. chi2  -60. uEH
+rotamer 99 %  chi1   63. chi2  -50. uEH
+rotamer 16 %  chi1   63. chi2  -10. uEH
+rotamer 99 %  chi1   63. chi2   30. uEH
+rotamer 99 %  chi1 -172. chi2  -30. uEH
+rotamer 32 %  chi1 -172. chi2    0. uEH
+rotamer 99 %  chi1 -172. chi2   65. uEH
+ASN N    4    2 112000
+  -0.52490  -0.77761  -1.20858 C CB
+  -2.03875  -0.84074  -1.24745 C CG
+  -2.67264  -1.37530  -0.33795 O OD1
+  -2.62637  -0.29063  -2.30338 N ND2
+Chi1     5
+  -70  190   65 -150 -120
+Chi2     9
+  -60  -20  -90   10   40   70  100  130  160
+Richardsons rotamers ASN  9
+rotamer 56 %  chi1  -68. chi2  -20. uEH
+rotamer 99 %  chi1  -68. chi2  -75. uEH
+rotamer 99 %  chi1  -68. chi2  120. uEH
+rotamer 99 %  chi1   64. chi2  -50. uEH
+rotamer 14 %  chi1   64. chi2  -10. uEH
+rotamer 99 %  chi1   64. chi2   30. uEH
+rotamer 99 %  chi1 -171. chi2  -80. uEH
+rotamer 29 %  chi1 -171. chi2  -20. uEH
+rotamer 99 %  chi1 -171. chi2   30. uEH
+MET M    4    3 111100
+  -0.52380  -0.77655  -1.21003 C CB
+  -2.03905  -0.79808  -1.32456 C CG
+  -2.61415  -1.68381  -2.78596 S SD
+  -4.38435  -1.67018  -2.51493 C CE
+Chi1     4
+  -65  180   65    0
+Chi2     3
+  180  -65   70 
+Chi3     3
+  -70   80 -170
+Richardsons rotamers MET 21
+rotamer 20 %  chi1  -66. chi2  -61. chi3  -69. uEH
+rotamer 3 %   chi1  -65. chi2  -62. chi3  102. uEH
+rotamer 4 %   chi1  -65. chi2  -64. chi3  172. uEH
+rotamer 17 %  chi1  -67. chi2  177. chi3   70. uEH
+rotamer 9 %   chi1  -67. chi2  180. chi3 -177. uEH
+rotamer 11 %  chi1  -66. chi2 -178. chi3  -74. uEH
+rotamer 0 %   chi1  -77. chi2   73. chi3   74. uEH
+rotamer 0 %   chi1  -70. chi2   74. chi3  167. uEH
+rotamer 2 %   chi1   65. chi2 -176. chi3   73. uEH
+rotamer 2 %   chi1   65. chi2  179. chi3  -72. uEH
+rotamer 2 %   chi1   65. chi2 -178. chi3  179. uEH
+rotamer 0 %   chi1   61. chi2   79. chi3   71. uEH
+rotamer 0 %   chi1   64. chi2   82. chi3 -154. uEH
+rotamer 0 %   chi1   73. chi2  -69. chi3  -69. uEH
+rotamer 7 %   chi1 -175. chi2   64. chi3   72. uEH
+rotamer 2 %   chi1 -173. chi2   66. chi3 -156. uEH
+rotamer 7 %   chi1 -178. chi2  179. chi3   72. uEH
+rotamer 3 %   chi1 -177. chi2  177. chi3  176. uEH
+rotamer 7 %   chi1 -175. chi2  180. chi3  -72. uEH
+rotamer 0 %   chi1 -179. chi2  -86. chi3  174. uEH
+rotamer 2 %   chi1 -177. chi2  -82. chi3  -72. uEH
+MSE +    4    3 111100
+  -0.52380  -0.77655  -1.21003 C CB
+  -2.03905  -0.79808  -1.32456 C CG
+  -2.61415  -1.68381  -2.78596 SE SE
+  -4.38435  -1.67018  -2.51493 C CE
+Chi1     4
+  -65  180   65    0
+Chi2     3
+  180  -65   70 
+Chi3     3
+  -70   80 -170
+Richardsons rotamers MSE 21
+rotamer 20 %  chi1  -66. chi2  -61. chi3  -69. uEH
+rotamer 3 %   chi1  -65. chi2  -62. chi3  102. uEH
+rotamer 4 %   chi1  -65. chi2  -64. chi3  172. uEH
+rotamer 17 %  chi1  -67. chi2  177. chi3   70. uEH
+rotamer 9 %   chi1  -67. chi2  180. chi3 -177. uEH
+rotamer 11 %  chi1  -66. chi2 -178. chi3  -74. uEH
+rotamer 0 %   chi1  -77. chi2   73. chi3   74. uEH
+rotamer 0 %   chi1  -70. chi2   74. chi3  167. uEH
+rotamer 2 %   chi1   65. chi2 -176. chi3   73. uEH
+rotamer 2 %   chi1   65. chi2  179. chi3  -72. uEH
+rotamer 2 %   chi1   65. chi2 -178. chi3  179. uEH
+rotamer 0 %   chi1   61. chi2   79. chi3   71. uEH
+rotamer 0 %   chi1   64. chi2   82. chi3 -154. uEH
+rotamer 0 %   chi1   73. chi2  -69. chi3  -69. uEH
+rotamer 7 %   chi1 -175. chi2   64. chi3   72. uEH
+rotamer 2 %   chi1 -173. chi2   66. chi3 -156. uEH
+rotamer 7 %   chi1 -178. chi2  179. chi3   72. uEH
+rotamer 3 %   chi1 -177. chi2  177. chi3  176. uEH
+rotamer 7 %   chi1 -175. chi2  180. chi3  -72. uEH
+rotamer 0 %   chi1 -179. chi2  -86. chi3  174. uEH
+rotamer 2 %   chi1 -177. chi2  -82. chi3  -72. uEH
+GLU E    5    3 111200
+  -0.52459  -0.77712  -1.20916 C CB
+  -2.04049  -0.80659  -1.31584 C CG
+  -2.52522  -1.58200  -2.52412 C CD
+  -2.82111  -0.94899  -3.55891 O OE1
+  -2.60969  -2.82488  -2.44004 O OE2
+Chi1     4
+  182  -68 -160   60
+Chi2     3
+  181   75  -70
+Chi3     6
+  -60  -30   -5   15   40   70
+Richardsons rotamers GLU 16
+rotamer 37 %  chi1  -67. chi2  179. chi3  -10. uEH
+rotamer 99 %  chi1  -67. chi2  179. chi3   60. uEH
+rotamer 99 %  chi1  -67. chi2  179. chi3  -60. uEH
+rotamer 16 %  chi1  -66. chi2  -67. chi3  -40. uEH
+rotamer 99 %  chi1  -66. chi2  -67. chi3    0. uEH
+rotamer 6 %   chi1  -67. chi2   83. chi3    3. uEH
+rotamer 5 %   chi1   65. chi2 -177. chi3  -20. uEH
+rotamer 99 %  chi1   65. chi2 -177. chi3  -60. uEH
+rotamer 99 %  chi1   65. chi2 -177. chi3   60. uEH
+rotamer 3 %   chi1   69. chi2  -85. chi3   16. uEH
+rotamer 0 %   chi1   61. chi2   86  chi3   20. uEH
+rotamer 8 %   chi1 -178. chi2   65. chi3   26. uEH
+rotamer 99 %  chi1 -177. chi2  178. chi3  -60. uEH
+rotamer 24 %  chi1 -177. chi2  178. chi3    0. uEH
+rotamer 99 %  chi1 -177. chi2  178. chi3   60. uEH
+rotamer 2 %   chi1 -170. chi2  -83. chi3  -29. uEH
+GLN Q    5    3 111200
+  -0.52464  -0.77707  -1.20917 C CB
+  -2.04052  -0.80239  -1.31830 C CG
+  -2.52483  -1.57787  -2.52706 C CD
+  -2.83648  -0.99758  -3.56670 O OE1
+  -2.59002  -2.89746  -2.39581 N NE2
+Chi1     3
+  -65  180  65
+Chi2     5
+  180  -70  70 -140  150
+Chi3    12 
+ -180 -150 -120  -90  -60  -30    0   30   60   90  120  150
+Richardsons rotamers GLN 20
+rotamer 39 %  chi1  -67. chi2  179. chi3  -25. uEH
+rotamer 99 %  chi1  -67. chi2  179. chi3   60. uEH
+rotamer 99 %  chi1  -67. chi2  179. chi3  -60. uEH
+rotamer 19 %  chi1  -64. chi2  -66. chi3  -40. uEH
+rotamer 99 %  chi1  -64. chi2  -66. chi3  100. uEH
+rotamer 3 %   chi1  -67. chi2   82. chi3   11. uEH
+rotamer 99 %  chi1  -73. chi2   69. chi3 -120. uEH
+rotamer 99 %  chi1   65. chi2 -177. chi3  -60. uEH
+rotamer 5 %   chi1   65. chi2 -177. chi3   20. uEH
+rotamer 99 %  chi1   65. chi2 -177. chi3   60. uEH
+rotamer 0 %   chi1   63. chi2   84. chi3   30. uEH
+rotamer 1 %   chi1   70. chi2  -84. chi3   17. uEH
+rotamer 99 %  chi1 -177. chi2  178. chi3  -60. uEH
+rotamer 19 %  chi1 -177. chi2  178. chi3    0. uEH
+rotamer 99 %  chi1 -177. chi2  178. chi3   60. uEH
+rotamer 99 %  chi1 -177. chi2  178. chi3   30. uEH
+rotamer 99 %  chi1 -177. chi2   65. chi3 -105. uEH
+rotamer 11 %  chi1 -177. chi2   65. chi3   41. uEH
+rotamer 2 %   chi1 -172. chi2  -84. chi3  -29. uEH
+rotamer 99 %  chi1 -172. chi2  -76. chi3  127. uEH
+LYS K    5    4 111110
+  -0.52319  -0.77649  -1.21031 C CB
+  -2.03462  -0.74187  -1.36402 C CG
+  -2.47600  -1.45354  -2.63267 C CD
+  -3.98399  -1.64007  -2.66523 C CE
+  -4.42839  -2.35508  -3.89337 N NZ
+Chi1     3
+  -65  180   65
+Chi2     3
+  180  -60   65
+Chi3     4
+  180  -65   65  120
+Chi4     6
+  180  -65   70 -120   90  140
+Richardsons rotamers LYS 39
+rotamer 25 %  chi1  -68. chi2 -178. chi3 -179. chi4  179. uEH
+rotamer 5 %   chi1  -67. chi2 -177. chi3 -177. chi4  -67. uEH
+rotamer 4 %   chi1  -66. chi2 -179. chi3  176. chi4   67. uEH
+rotamer 4 %   chi1  -67. chi2 -173. chi3  -74. chi4 -175. uEH
+rotamer 1 %   chi1  -64. chi2 -177. chi3  -70. chi4  -66. uEH
+rotamer 1 %   chi1  -69. chi2  177. chi3   70. chi4   68. uEH
+rotamer 4 %   chi1  -69. chi2  174. chi3   71. chi4  175. uEH
+rotamer 1 %   chi1  -61. chi2  -69. chi3  180. chi4   68. uEH
+rotamer 1 %   chi1  -62. chi2  -67. chi3 -177. chi4 -178. uEH
+rotamer 2 %   chi1  -60. chi2  -66. chi3 -173. chi4  -69. uEH
+rotamer 2 %   chi1  -63. chi2  -64. chi3  -71. chi4 -177. uEH
+rotamer 0 %   chi1  -61. chi2  -62. chi3  -67. chi4  -65. uEH
+rotamer 0 %   chi1  -60. chi2  -71. chi3   94. chi4  176. uEH
+rotamer 0 %   chi1  -83. chi2   74. chi3   69. chi4  177. uEH
+rotamer 0 %   chi1  -75. chi2   87. chi3  172. chi4   65. uEH
+rotamer 0 %   chi1  -80. chi2   73. chi3  176. chi4  175. uEH
+rotamer 0 %   chi1   65. chi2  179. chi3   73. chi4  175. uEH
+rotamer 0 %   chi1   65. chi2  178. chi3   72. chi4   66. uEH
+rotamer 0 %   chi1   62. chi2  180. chi3   68. chi4  -65. uEH
+rotamer 1 %   chi1   68. chi2 -179. chi3  178. chi4   67. uEH
+rotamer 4 %   chi1   65. chi2 -178. chi3 -179. chi4  180. uEH
+rotamer 1 %   chi1   64. chi2 -178. chi3 -179. chi4  -67. uEH
+rotamer 1 %   chi1   67. chi2 -176. chi3  -71. chi4 -176. uEH
+rotamer 0 %   chi1   67. chi2 -178. chi3  -70. chi4  -66. uEH
+rotamer 0 %   chi1   64. chi2   90. chi3  176. chi4  179. uEH
+rotamer 1 %   chi1  180. chi2   67. chi3  174. chi4   66. uEH
+rotamer 4 %   chi1 -179. chi2   69. chi3  176. chi4  177. uEH
+rotamer 1 %   chi1 -178. chi2   67. chi3 -179. chi4  -66. uEH
+rotamer 1 %   chi1 -178. chi2   63. chi3   70. chi4  177. uEH
+rotamer 0 %   chi1 -178. chi2   62. chi3   66. chi4   68. uEH
+rotamer 1 %   chi1 -178. chi2  174. chi3   72. chi4   68. uEH
+rotamer 3 %   chi1 -178. chi2  175. chi3   73. chi4  175. uEH
+rotamer 4 %   chi1 -178. chi2  175. chi3  174. chi4   66. uEH
+rotamer 15 %  chi1 -176. chi2  177. chi3  180. chi4  180. uEH
+rotamer 3 %   chi1 -176. chi2  178. chi3 -176. chi4  -67. uEH
+rotamer 2 %   chi1 -175. chi2 -177. chi3  -73. chi4 -175. uEH
+rotamer 1 %   chi1 -174. chi2  180. chi3  -71. chi4  -67. uEH
+rotamer 0 %   chi1 -173. chi2  -91. chi3 -177. chi4 -179. uEH
+rotamer 0 %   chi1 -179. chi2  -93. chi3  -70. chi4  180. uEH
+HIS H    6    2 112200
+  -0.51972  -0.77258  -1.21535 C CB
+  -2.01282  -0.87393  -1.26346 C CG
+  -2.80383   0.07192  -1.87816 N ND1
+  -4.07285  -0.27571  -1.76218 C CE1
+  -4.13406  -1.41334  -1.09250 N NE2
+  -2.85837  -1.80827  -0.76831 C CD2
+Chi1     3
+  -65 -170   65
+Chi2    12 
+ -180 -150 -120  -90  -60  -30    0   30   60   90  120  150
+Richardsons rotamers HIS  8
+rotamer 32 %  chi1  -65. chi2  -75. uEH
+rotamer 9 %   chi1  -68. chi2  171. uEH
+rotamer 13 %  chi1  -66. chi2   88. uEH
+rotamer 7 %   chi1   65. chi2  -81. uEH
+rotamer 5 %   chi1   62. chi2   87. uEH
+rotamer 4 %   chi1 -173. chi2 -167. uEH
+rotamer 12 %  chi1 -174. chi2  -87. uEH
+rotamer 17 %  chi1 -178. chi2   74. uEH
+ARG R    7    4 111112
+  -0.52314  -0.77716  -1.20968 C CB
+  -2.01146  -0.60370  -1.46257 C CG
+  -2.42763  -1.26027  -2.76905 C CD
+  -3.85375  -1.57154  -2.79391 N NE
+  -4.44275  -2.30612  -3.73128 C CZ
+  -3.72790  -2.81054  -4.72685 N NH1
+  -5.74655  -2.53704  -3.67293 N NH2
+Chi1     3
+  -65  185   65
+Chi2     3
+  180  -70   70
+Chi3     3
+  180  -65   70
+Chi4     6
+  180 -140  -90    0   90  140
+Richardsons rotamers ARG 52
+rotamer 10 %  chi1  -67. chi2  180. chi3 -179. chi4  177. uEH
+rotamer 6 %   chi1  -67. chi2 -179. chi3 -176. chi4  -89. uEH
+rotamer 5 %   chi1  -68. chi2  180. chi3  179. chi4   91. uEH
+rotamer 2 %   chi1  -68. chi2 -177. chi3  -69. chi4  113. uEH
+rotamer 5 %   chi1  -66. chi2  179. chi3  -67. chi4  173. uEH
+rotamer 6 %   chi1  -68. chi2 -172. chi3  -64. chi4  -88. uEH
+rotamer 1 %   chi1  -65. chi2  179. chi3   66. chi4 -110. uEH
+rotamer 4 %   chi1  -66. chi2  177. chi3   65. chi4   88. uEH
+rotamer 5 %   chi1  -66. chi2  179. chi3   66. chi4 -172. uEH
+rotamer 1 %   chi1  -61. chi2  -68. chi3  179. chi4   90. uEH
+rotamer 3 %   chi1  -62. chi2  -68. chi3 -177. chi4 -176. uEH
+rotamer 3 %   chi1  -64. chi2  -69. chi3 -175. chi4  -91. uEH
+rotamer 2 %   chi1  -62. chi2  -66. chi3  -64. chi4  163. uEH
+rotamer 2 %   chi1  -63. chi2  -68. chi3  -61. chi4  -86. uEH
+rotamer 0 %   chi1  -63. chi2  -75. chi3   74. chi4   78. uEH
+rotamer 0 %   chi1  -64. chi2  -65. chi3   86. chi4 -167. uEH
+rotamer 1 %   chi1  -85. chi2   69. chi3  174. chi4  174. uEH
+rotamer 0 %   chi1  -76. chi2   85. chi3  170. chi4   93. uEH
+rotamer 0 %   chi1  -79. chi2   75. chi3  178. chi4  -88. uEH
+rotamer 0 %   chi1  -79. chi2   82. chi3   65. chi4 -167. uEH
+rotamer 0 %   chi1  -77. chi2   82. chi3   58. chi4   85. uEH
+rotamer 2 %   chi1   65. chi2  179. chi3  177. chi4   88. uEH
+rotamer 2 %   chi1   65. chi2 -177. chi3  180. chi4  179. uEH
+rotamer 2 %   chi1   66. chi2 -175. chi3 -177. chi4  -87. uEH
+rotamer 1 %   chi1   63. chi2 -179. chi3  -67. chi4  165. uEH
+rotamer 0 %   chi1   65. chi2 -178. chi3  -66. chi4  -85. uEH
+rotamer 0 %   chi1   65. chi2  179. chi3   64. chi4   88. uEH
+rotamer 1 %   chi1   67. chi2 -176. chi3   68. chi4 -173. uEH
+rotamer 0 %   chi1   68. chi2  180. chi3   65. chi4 -108. uEH
+rotamer 0 %   chi1   81. chi2  -68. chi3 -177. chi4  -84. uEH
+rotamer 0 %   chi1   74. chi2  -79. chi3 -169. chi4 -169. uEH
+rotamer 0 %   chi1   59. chi2   88. chi3  174. chi4  173. uEH
+rotamer 4 %   chi1 -177. chi2  180. chi3   63. chi4   83. uEH
+rotamer 3 %   chi1 -175. chi2  179. chi3   67. chi4 -171. uEH
+rotamer 1 %   chi1 -175. chi2  177. chi3   65. chi4 -113. uEH
+rotamer 2 %   chi1 -176. chi2  176. chi3  176. chi4   87. uEH
+rotamer 5 %   chi1 -176. chi2  176. chi3  179. chi4  179. uEH
+rotamer 3 %   chi1 -177. chi2  178. chi3 -178. chi4  -90. uEH
+rotamer 2 %   chi1 -175. chi2  179. chi3  -64. chi4  113. uEH
+rotamer 3 %   chi1 -177. chi2  177. chi3  -68. chi4  171. uEH
+rotamer 3 %   chi1 -174. chi2  179. chi3  -65. chi4  -85. uEH
+rotamer 0 %   chi1  179. chi2   67. chi3  180. chi4  -89. uEH
+rotamer 1 %   chi1  179. chi2   66. chi3  179. chi4   86. uEH
+rotamer 2 %   chi1 -179. chi2   66. chi3  178. chi4  171. uEH
+rotamer 1 %   chi1 -178. chi2   65. chi3   60. chi4   84. uEH
+rotamer 1 %   chi1  179. chi2   66. chi3   65. chi4 -168. uEH
+rotamer 0 %   chi1  178. chi2   70. chi3  -85. chi4  172. uEH
+rotamer 0 %   chi1 -174. chi2  -91. chi3 -174. chi4 -171. uEH
+rotamer 0 %   chi1 -178. chi2  -94. chi3 -178. chi4   87. uEH
+rotamer 0 %   chi1 -174. chi2  -93. chi3 -178. chi4  -85. uEH
+rotamer 0 %   chi1 -174. chi2  -86. chi3  -56. chi4  -82. uEH
+rotamer 0 %   chi1 -172. chi2  -90. chi3  -61. chi4  164. uEH
+PHE F    7    2 112210
+  -0.52278  -0.77544  -1.21156 C CB
+  -2.02094  -0.88088  -1.25943 C CG
+  -2.77614   0.08951  -1.89361 C CD1
+  -2.67148  -1.94961  -0.66837 C CD2
+  -4.15393  -0.00267  -1.93973 C CE1
+  -4.04884  -2.05097  -0.70898 C CE2
+  -4.79345  -1.07534  -1.34627 C CZ
+Chi1     4
+  -65  180   65 -110
+Chi2     4
+   75  -75  -40  -10
+Richardsons rotamers PHE  5
+rotamer 48 %  chi1  -67. chi2  -81. uEH
+rotamer 7 %   chi1  -68. chi2  -15. uEH
+rotamer 99 %  chi1  -85. chi2   30. uEH
+rotamer 11 %  chi1   64. chi2  -90. uEH
+rotamer 34 %  chi1 -178. chi2   76. uEH
+TYR Y    8    2 112211
+  -0.52129  -0.77519  -1.21246 C CB
+  -2.02702  -0.88629  -1.26750 C CG
+  -2.79142   0.08211  -1.90486 C CD1
+  -2.68582  -1.95822  -0.67993 C CD2
+  -4.16881  -0.01539  -1.95718 C CE1
+  -4.06296  -2.06330  -0.72777 C CE2
+  -4.79884  -1.08957  -1.36737 C CZ
+  -6.17060  -1.19087  -1.41799 O OH
+Chi1     5
+  -65  180   65 -155   90
+Chi2     5
+   75  -80  -60  -30   40
+Richardsons rotamers TYR  5
+rotamer 48 %  chi1  -67. chi2  -81. uEH
+rotamer 6 %   chi1  -68. chi2  -15. uEH
+rotamer 99 %  chi1  -85. chi2   30. uEH
+rotamer 12 %  chi1   64. chi2  -90. uEH
+rotamer 35 %  chi1 -178. chi2   76. uEH
+TRP W   10    2 112321
+  -0.52007  -0.77254  -1.21529 C CB
+  -2.01355  -0.87454  -1.26073 C CG  
+  -2.87956   0.01112  -1.83394 C CD1  
+  -4.17355  -0.42188  -1.67224 N NE1  
+  -4.16327  -1.60638  -0.98398 C CE2  
+  -5.22000  -2.42236  -0.58360 C CZ2  
+  -4.90877  -3.56520   0.10120 C CH2  
+  -3.58169  -3.90493   0.39030 C CZ3   
+  -2.53304  -3.09746  -0.00571 C CE3  
+  -2.81866  -1.92276  -0.70724 C CD2  
+Chi1     5
+  -70  180   50  -40 -100
+Chi2     9 
+ -130  -95  -70  -40  -10   30   90  110  140
+Richardsons rotamers TRP  8
+rotamer 10 %  chi1   62. chi2  -89. uEH
+rotamer 5 %   chi1   60. chi2   88. uEH
+rotamer 16 %  chi1 -177. chi2 -103. uEH
+rotamer 18 %  chi1 -179. chi2   50. uEH
+rotamer 99 %  chi1 -179. chi2   90. uEH
+rotamer 5 %   chi1  -68. chi2  -89. uEH
+rotamer 34 %  chi1  -67. chi2   97. uEH
+rotamer 12 %  chi1  -68. chi2   -7. uEH

@@ -1,0 +1,43 @@
+#Setup file for PDB_REDO 
+
+#set environment parameters (define directories and files). EDIT THESE when needed.
+#Input, output and temporary directories:
+#setenv BASE     /zata
+setenv LOG      /tmp/$USER/$PDBID.log          #Location of the temporary log file
+setenv WORKDIR  $BASE/tempdir/$PDBID           #Refinement workdir
+setenv OUTPUT   $BASE/pdb_redo/$D2/$PDBID      #Directory with the final results
+
+#Required software:
+#source $BASE/ccp4-7.1/bin/ccp4.setup-csh       #CCP4 setup file. This should be the CSH/TCSH version!
+setenv WC       $BASE/whatcheck15                #WHAT_CHECK dir
+
+#Highly recommended optional software:
+setenv BLASTP   /usr/bin/blastp                #blastP executable; comment this line out if you don't have it
+
+#Optional software (not free):
+setenv YASARA   $BASE/yasara/yasara            #YASARA executable; comment this line out if you don't have it
+
+#Other software:
+setenv KRABSRC  $BASE/ab/venv/bin/activate.csh #Source file for KRAB; comment this line out if you don't have it
+setenv PYIGCL   $BASE/ab/PyIgClassify          #Directory with the PyIgClassify; comment this line out if you don't have it
+
+#Book keeping files (put them in a directory with write permissions)
+setenv WHYNOT   $BASE/whynot.txt               #WhyNot file(s); you can set this to '/dev/null' if you want
+setenv DEBUG    $BASE/debug.txt                #Debug information; you can set this to '/dev/null' if you want
+setenv DEBUGB   $BASE/build_debug.txt          #Debug information for building tools; you can set this to '/dev/null' 
+setenv CHIRALS  $BASE/chirals.txt              #File with unknown chiral centers; you can set this to '/dev/null'
+
+#Local input files for homology restraints. These are automatically downloaded if not available.
+setenv REDODIR  /DATA/pdb_redo              #Directory with the PDB_REDO structure models
+setenv EDSDIR   /DATA/pdb_redo              #Directory with the corresponding EDstats data
+
+#Local input files for databank mode.
+setenv SF       /DATA/structure_factors        #Directory with structure factor files from the PDB
+setenv PDB      /DATA/pdb                      #Directory with pdb files
+setenv COORD    /DATA/mmCIF                    #Directory with mmCIF coordinate files
+#This assumes typical pdb filenames!
+#E.g. for PDB entry "1abc" this would be r1abcsf.ent and pdb1abc.ent
+
+#Local output files for databank mode.
+setenv RESTOUT  $BASE/pdb_redo/restraints      #Directory where output restraints are stored
+
