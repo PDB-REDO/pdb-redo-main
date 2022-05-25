@@ -184,9 +184,9 @@ eof
   cp $VFILE $VFILE.tmp && jq '.software +={"YASARA":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 endif
 
-# 36) stats, always
-set VERSION = `$TOOLS/stats --version | awk '{print $3}'`
-cp $VFILE $VFILE.tmp && jq '.software +={"stats":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
+# 36) density-fitness, always
+set VERSION = `$TOOLS/density-fitness --version | awk '{print $3}'`
+cp $VFILE $VFILE.tmp && jq '.software +={"density-fitness":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
 # 38) sftools, optional
 cp $VFILE $VFILE.tmp && jq '.software +={"sftools":{ "version":null, "used":false }}' $VFILE.tmp > $VFILE

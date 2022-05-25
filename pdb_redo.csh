@@ -138,8 +138,12 @@ endif
 # - x3dna-dssr     Needed for nucleic acid restraints and validation.
 #
 ####################################################### Change log #######################################################
-set VERSION = '7.37' #PDB-REDO version
+set VERSION = '7.38' #PDB-REDO version
 
+# Version 7.38:
+# - A compressed FAIRness copy is added which allows the use of permament identifiers.
+# - Bugfix for handling additional compounds in density-fitness.
+#
 # Version 7.37:
 # - Bugfix for twinning detection when running in legacy mode.
 # - Bugfix for using PDBPeep.
@@ -677,6 +681,7 @@ set ANOMCOEF      =         #Input anomalous data for Refmac
 set ANOMCMD       =         #Command for anomalous refinement
 set FASTAIN       =         #No input fasta by default
 set DICTCMD       =         #No dictionary to append by default  
+set DICTCMDDF     =         #No dictionary to append by default to density-fitness  
 
 #Refmac settings
 set CONNECTIVITY  =         #Empty value uses Refmac's default other options are 'connectivity [YES|NO|DEFINE]'
@@ -697,8 +702,7 @@ set NUMBERING    =              #The file with the residue numbering mapping fro
 set NLIG_LIST    =              #No newly added ligands
 set OXTADD       =              #Add OXT atoms by default
 set TRUSTSEQ     = 0            #Trust the sequence by default
-set SFFILE       = 'atomsf'     #Default scattering factor file for stats
-set SFTYPE       =              #Set scattering type for stats (Default: X-ray) 
+set SFTYPE       =              #Set scattering type for density-fitness (Default: X-ray) 
 set DIDMR        = 0            #No molecular replacement was done 
 
 #Error flags
@@ -1511,7 +1515,6 @@ if ($ISXRAY == 0) then #Not an X-ray structure, is it electron diffraction?
     #Use converted X-ray to electron form factors
     set SCATTERCMD = 'source electron MB'
     set SFTYPE     = '--electron-scattering'
-    set SFFILE     = 'atomsf_electron'
     set EXPTYP     = 'ED'
     #Ignore anomalous data
     set C2CANO = ""
@@ -1994,8 +1997,9 @@ if ("$INREST" != "") then
     set LIBLIN = `echo LIBOUT $WORKDIR/${PDBID}_het.cif` #Output Refmac library file for new compounds or LINKs
   else
     #Force Refmac to use the uploaded restraint file
-    set LIBLIN  = `echo LIBIN $WORKDIR/${PDBID}_het.cif LIBOUT $WORKDIR/${PDBID}_het2.cif`
-    set DICTCMD = "--dict $WORKDIR/${PDBID}_het.cif"
+    set LIBLIN    = `echo LIBIN $WORKDIR/${PDBID}_het.cif LIBOUT $WORKDIR/${PDBID}_het2.cif`
+    set DICTCMD   = "--dict $WORKDIR/${PDBID}_het.cif"
+    set DICTCMDDF = "--other-compounds $WORKDIR/${PDBID}_het.cif"
   endif
 else
   set LIBLIN = `echo LIBOUT $WORKDIR/${PDBID}_het.cif` #Output Refmac library file for new compounds or LINKs
@@ -7165,12 +7169,13 @@ else
   
   #Append restraint dictionary (again)?
   if (-e $WORKDIR/${PDBID}_het.cif) then
-    set DICTCMD = "--dict $WORKDIR/${PDBID}_het.cif"
+    set DICTCMD   = "--dict $WORKDIR/${PDBID}_het.cif"
+    set DICTCMDDF = "--extra-compounds $WORKDIR/${PDBID}_het.cif"
   endif
 
   
   #Calculate density fit
-  $TOOLS/stats \
+  $TOOLS/density-fitness \
   --use-auth-ids \
   --sampling-rate 1.5 \
   --hklin $WORKDIR/${PDBID}_besttls.mtz \
@@ -7178,15 +7183,15 @@ else
   --xyzin $WORKDIR/${PDBID}_besttls.pdb \
   -o $WORKDIR/${PDBID}_besttls.json \
   --output-format json \
-  $DICTCMD >& $WORKDIR/loopwhole.log 
+  $DICTCMDDF >& $WORKDIR/loopwhole.log 
   
-  #Try without dictionary if stats fails
+  #Try without dictionary if density-fitness fails
   if (! -e $WORKDIR/${PDBID}_besttls.json && -e $WORKDIR/${PDBID}_het.cif) then
     #Problem probably is in the dictionary
-    set DICTCMD = 
+    set DICTCMDDF = 
     
     #Calculate density fit
-    $TOOLS/stats \
+    $TOOLS/density-fitness \
     --use-auth-ids \
     --sampling-rate 1.5 \
     --hklin $WORKDIR/${PDBID}_besttls.mtz \
@@ -7194,14 +7199,14 @@ else
     --xyzin $WORKDIR/${PDBID}_besttls.pdb \
     -o $WORKDIR/${PDBID}_besttls.json \
     --output-format json \
-    $DICTCMD >>& $WORKDIR/loopwhole.log
+    $DICTCMDDF >>& $WORKDIR/loopwhole.log
   endif 
   
-  #Stop of no stats file can be made
+  #Stop of no density-fitness file can be made
   if (! -e $WORKDIR/${PDBID}_besttls.json) then
     #Write error statement
     echo " o Cannot calculate density fit. Cannot continue." | tee -a $LOG
-    echo "COMMENT: error in stats" >> $WHYNOT
+    echo "COMMENT: error in density-fitness" >> $WHYNOT
     echo "PDB-REDO,$PDBID"         >> $WHYNOT
     if ($SERVER == 1) then
       #Write out status files
@@ -7293,9 +7298,9 @@ else
         END
 eof
       
-      #Run stats
+      #Run density-fitness
       echo "   * Calculating density fit" | tee -a $LOG
-      $TOOLS/stats \
+      $TOOLS/density-fitness \
       --use-auth-ids \
       --sampling-rate 1.5 \
       --hklin $WORKDIR/homol/${PDBID}_loopwhole_ref.mtz \
@@ -7303,7 +7308,7 @@ eof
       --xyzin $WORKDIR/homol/${PDBID}_loopwhole_ref.pdb \
       -o $WORKDIR/${PDBID}_loopwhole_validate.json \
       --output-format json \
-      $DICTCMD >>& $WORKDIR/density_loopwhole.log 
+      $DICTCMDDF >>& $WORKDIR/density_loopwhole.log 
       
       #Filter out bad loops
       cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software."loopwhole-validate".used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
@@ -8436,7 +8441,7 @@ eof
           --dictin $LIGREST > $WORKDIR/ligref.log
           
           #Calculate density fit on updated maps
-          $TOOLS/stats \
+          $TOOLS/density-fitness \
           --use-auth-ids \
           --sampling-rate 1.5 \
           --hklin $PDBID.mtz \
@@ -8444,7 +8449,7 @@ eof
           --recalc \
           --xyzin $WORKDIR/newlig_refi.pdb \
           -o $WORKDIR/density_$RESNUM.txt \
-          $DICTCMD >>& $WORKDIR/density_ligfit.log 
+          $DICTCMDDF >>& $WORKDIR/density_ligfit.log 
         
           #Save the scores
           grep "${CHID}_${RESNUM}[[:space:]]" $WORKDIR/density_$RESNUM.txt >> $WORKDIR/ligfit.scores         
@@ -9791,8 +9796,8 @@ eof
   endif
 endif
 
-#Run stats on the original model
-$TOOLS/stats \
+#Run density-fitness on the original model
+$TOOLS/density-fitness \
 --use-auth-ids \
 --sampling-rate 1.5 \
 --hklin $WORKDIR/${PDBID}_0cyc.mtz \
@@ -9800,10 +9805,10 @@ $SFTYPE \
 --xyzin $WORKDIR/${PDBID}_0cyc.pdb \
 -o $WORKDIR/${PDBID}_0cyc.json \
 --output-format json \
-$DICTCMD >& $WORKDIR/density_0cyc.log 
+$DICTCMDDF >& $WORKDIR/density_0cyc.log 
 
-#Run stats on the final model
-$TOOLS/stats \
+#Run density-fitness on the final model
+$TOOLS/density-fitness \
 --use-auth-ids \
 --sampling-rate 1.5 \
 --hklin $WORKDIR/${PDBID}_final.mtz \
@@ -9811,14 +9816,14 @@ $SFTYPE \
 --xyzin $WORKDIR/${PDBID}_final.pdb \
 -o $WORKDIR/${PDBID}_final.json \
 --output-format json \
-$DICTCMD >& $WORKDIR/density_final.log 
+$DICTCMDDF >& $WORKDIR/density_final.log 
 
 #Check for weird things
 @ NANTOT = (`grep -c 'nan' $WORKDIR/${PDBID}_0cyc.json` + `grep -c 'nan' $WORKDIR/${PDBID}_final.json`)
 if ($NANTOT > 12 && $SERVER == 0) then
   #Only stop if not in server mode
-  echo "COMMENT: suspicious output from stats" >> $WHYNOT
-  echo "PDB-REDO,$PDBID"                       >> $WHYNOT
+  echo "COMMENT: suspicious output from density-fitness" >> $WHYNOT
+  echo "PDB-REDO,$PDBID"                                 >> $WHYNOT
   exit(1)
 endif
     
@@ -10439,15 +10444,25 @@ endif
 #Add the title to data.json
 cat $TOUTPUT/tdata.json | jq --arg title "$TITLE" '.properties += {TITLE: $title}' > $TOUTPUT/data.json
 rm $TOUTPUT/tdata.json
-# #Keep a long-term copies for FAIRness
-# if (-e $OUTPUT/old_versions) then
-#   cp -r $OUTPUT/old_versions $TOUTPUT/
-# else
-#   mkdir -p $TOUTPUT/old_versions
-# endif  
-# gzip -c $WORKDIR/${PDBID}_final.cif > $TOUTPUT/old_versions/${PDBID}_v${VERSION}_final.cif.gz
-# gzip -c $WORKDIR/versions.txt       > $TOUTPUT/old_versions/${PDBID}_v${VERSION}_versions.txt.gz
-# gzip -c $TOUTPUT/data.json          > $TOUTPUT/old_versions/${PDBID}_v${VERSION}_data.json.gz
+
+#Keep a long-term copies for FAIRness
+if (-e $OUTPUT/attic) then
+  cp -r $OUTPUT/attic $TOUTPUT/
+else
+  mkdir -p $TOUTPUT/attic
+endif  
+
+#Set the version tags
+set VTAG = `sha256sum $WORKDIR/versions.json | cut -c 1-9`
+
+#Make a new attic if it has a new version tag
+if (! -e $TOUTPUT/attic/$VTAG) then
+  mkdir $TOUTPUT/attic/$VTAG
+  gzip -c $TOUTPUT/${PDBID}_final.cif > $TOUTPUT/attic/$VTAG/final.cif.gz
+  gzip -c $TOUTPUT/${PDBID}_final.mtz > $TOUTPUT/attic/$VTAG/final.mtz.gz
+  cp $TOUTPUT/versions.json  $TOUTPUT/attic/$VTAG/versions.json
+  cp $TOUTPUT/data.json      $TOUTPUT/attic/$VTAG/data.json
+endif
 
 #Give final results (usefull for batch jobs and quick result interpretation)
 if ($SERVER == 1) then
