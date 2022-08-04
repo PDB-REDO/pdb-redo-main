@@ -138,11 +138,27 @@ endif
 # - x3dna-dssr     Needed for nucleic acid restraints and validation.
 #
 ####################################################### Change log #######################################################
-set VERSION = '7.38' #PDB-REDO version
+set VERSION = '8.00' #PDB-REDO version
 
+# Version 8.00:
+# - Operations now start from an mmCIF-formatted coordinate file rather than a PDB-formatted file. PDB input files are 
+#   converted. 
+# - Major rewrite on input file checks; these now use cif-grep and mmCQL.
+# - Added check for space group consitency between model and reflection data.
+# - Removed check for SPLIT records as they are now extinct.
+# - Removed check for SIGATM and SIGUIJ records as they are no problem in mmCIF files.
+# - Slight redesign of ASCII art logo.
+# - Removed --pdbin argument. --xyzin should be used instead.
+# - Changed protein restraints to EH99/IT2006 with modifications for ARG.
+#
 # Version 7.38:
 # - A compressed FAIRness copy is added which allows the use of permament identifiers.
 # - Bugfix for handling additional compounds in density-fitness.
+# - Bugfix in the handling of loopwhole failures.
+# - Bugfix for using --nopdb when the coordinate file was converted from mmCIF.
+# - Added workaround for cases where density-fitness does not work befor loop building. 
+# - Dropping the JRNL and REMARK 1 records if that causes parsing errors.
+# - Added a catch for corrupted versions.json files.
 #
 # Version 7.37:
 # - Bugfix for twinning detection when running in legacy mode.
@@ -394,203 +410,6 @@ set VERSION = '7.38' #PDB-REDO version
 # - Better handling for missing high resolution data.
 # - Changed the way data.txt is written to avoid race conditions.
 #
-# Version 6.29:
-# - The output PDB files now also have SEQRES records.
-# - Added flipper to do DEFY standardisation flips. This replaces the WHAT_CHECK run on the not-quite final pdb file.
-# - Flipper is also run before extractor to avoid potential harmful DEFY flips by other programs.
-# - Workaround for ctruncate problems if there are anomalous intensities.
-#
-# Version 6.28:
-# - Input MTZ files with many systematic absent reflection now no longer cause infinite loops.
-# - Fix for twinning detection by PHASER.
-# - Specified NOHARVEST for the REFMAC jobs.
-# - Fix for new version of WHAT_CHECK.
-#
-# Version 6.27:
-# - Homology restraints are now automatically used in the third lowest resolution category.
-# - Added the --nohomology flag to not use homology restraints.
-# - Added H-bond satisfaction percentile for the server.
-# - Writing out percentiles to data.txt.
-# - Removed the link to EDS.
-# - More robust treatment of alternative directory structures and compression of local PDB/reflection files.
-# - The besttls files are now gzipped in the databank.
-# - Missing percentiles are no longer in <em> tags on the server.
-#
-# Version 6.26:
-# - Homology restraints are now also used in the second lowest resolution category.
-# - Fix to deal with = characters in the file names.
-# - Carbohydrate residues are now only renamed if they are part of N-glycans.
-# - PDB-care is run differently based on the presence or absence of CONECT records.
-#
-# Version 6.25:
-# - Added a twin test from PHASER to reduce twinning false positives.
-# - Fixed bug in handeling corrupt restraint files.
-# - SEGID records (not part of the official PDB format) are now deleted.
-# - Added the --mtzdb flag.
-#
-# Version 6.24:
-# - The configuration of PDB-REDO is moved to a separate file which makes updating easier.
-# - Changed the geometric weight for mini-rsr to 10.00 based on feedback from Paul Emsley.
-# - Users can give a sequence file.
-# - Now using Refmac's default treatment of sugars.
-# - Stability fix for parsing WHAT_CHECK output.
-# - Better handling of incorrect external restraint files.
-#
-# Version 6.23:
-# - Fix in the map handeling for pepflip.
-# - Improved error message for atom naming problems.
-# - Bug fix for PHASER output detection.
-# - Kollumer now ignores anomalous data with very low completeness.
-# - Homology restraints are now automatically used in the lowest resolution category.
-# - If the resolution cut-off is changed the solvent mask parameters are re-optimised.
-# - Bugfix in YASARA atom shift scene generation.
-#
-# Version 6.22:
-# - A JSON version of data.txt is now also written.
-# - Started using WHAT_CHECK 14.
-# - Stability fix for homology restraints.
-# - Better handling of rediculously high (total) B-factors after TLS refinement.
-#
-# Version 6.21:
-# - Updated the information in the data.txt that allows regeneration of all relevant warnings in the index.html files.
-# - The entry creation date is now also stored in data.txt.
-# - Stabitility fix in the real-space map validation.
-# - Fixed support for users without FoldX.
-# - Substantial reduction in messages to debug.txt.
-#
-# Version 6.20:
-# - Added workaround for Refmac deleting LINK records after rigid-body refinement.
-# - If ctruncate fails or writes out an unusable reflection file the I to F conversion is performed by cif2cif.
-# - Models with strict NCS are now also automatically run in databank mode.
-#
-# Version 6.19:
-# - Ligand validation in YASARA is now also parallelised.
-# - Fixed bug in the residue name extraction for validated ligands.
-# - The wavelength is now read form the PDB header if no value is given in the reflection file.
-# - Stability fix for k-fold cross validation.
-# - Switched to the CCP4 version of syminfo.lib for the rebuilding tools.
-#
-# Version 6.18:
-# - Switched back to the mini-rsr (now named coot-mini-rsr) distributed with CCP4.
-# - At low resolution the B-factor model selection is slightly less conservative.
-# - A debug statement is written for legacy entries with calculated R-free > 0.50.
-# - PDB-REDO is stopped if the resolution of the reflection data is higher than 0.30A, which is an indication reflection
-#   data problems.
-# - Stability fix in the real-space validation.
-#
-# Version 6.17:
-# - Anomalous data is now used to make anomalous maps, but not for refinement.
-# - Generating anomalous maps is not compatible with twinning or phased refinement.
-# - Anomalous data can be ignored with the '--noanomalous' flag.
-# - Small improvements to how the MTZ file is made.
-#
-# Version 6.16:
-# - The completeness of the data is now reported in data.txt.
-# - At very low completeness (less than 50%) and omit map is created with COMIT. This map is used for water deletion,
-#   side-chain rebuilding and selection of peptide flipping candidates. The map is of too low quality for mini-rsr.
-# - Made centrifuge a bit less aggressive in water deletion.
-# - The new program rotacompare replaces YASARA for rotamer and peptide analysis.
-# - External restraint files are now checked to see whether they are not regular mmCIF restraint files.
-#
-# Version 6.15:
-# - Change in pepflip that should improve the initial filtering of flipping candidates.
-# - Changed resolution cut-off for peptide flipping to 3.3A (from 3.5A).
-# - Switched to a new rotamer dictionary for SideAide, based on the Top8000/Top7200.
-# - Reporting of missing wavelengths is now limited to entries from 2007 onwards.
-#
-# Version 6.14:
-# - A JSON-formatted datafile for PDBe is now written in databank mode.
-# - A debug message is written when the wavelength is not reported in the reflection file.
-# - Residues named WAT are now excluded from ligand validation, UNL is now included.
-# - The output from the rebuilding tools is now slightly less verbose.
-# - Stability fix in making the dRSCC plots.
-#
-# Version 6.13:
-# - The solvent percentage is now also given for structures with strict NCS.
-# - Hydrogen bond restraints now also apply to side chains.
-# - Added optional homology based restraints, this requires a local installation of BlastP.
-# - Homology-based restraints currently only work in databank mode.
-# - Activate homology-based restraints with --homology.
-#
-# Version 6.12:
-# - LINKs are now added based on the output of PDB-care.
-#
-# Version 6.11:
-# - CIF2CIF now keeps phase information from the input reflection file.
-# - Several related stability fixes to cif2cif.
-# - Started using CCP4 7.0.
-#
-# Version 6.10:
-# - First attempt to deal with electron diffraction data. It is not very sophisticated yet.
-# - The type of experiment is now written to data.txt.
-# - Writing of success.txt is more elegant now.
-# - Implemented a new version of detectHbonds.
-#
-# Version 6.09:
-# - Changed to a new version of mini-rsr that should improve pepflip's performance. This temporarily adds a lot of
-#   dependencies.
-# - The dependency problem will be solved once CCP4 starts distributing COOT 0.8.3.
-# - Added a specific file for debug messages from the rebuilding tools in PDB-REDO.
-#
-# Version 6.08:
-# - Failure of the second TLSANL run now triggers a debug message.
-#
-# Version 6.07:
-# - Using a new version of pepflip that uses maps in which ligands an metals are masked out. This should improve the real-
-#   space refinement in mini-rsr and reduce severe cases of severe backbone distortion.
-# - Pepflip now uses the mini-rsr distributed with CCP4.
-# - Fix to the second run of zen.
-# - If different metal sites are discoverd in the second run of zen, the number of refinement cycles is increased.
-# - Directories are now deleted without prompting.
-#
-# Version 6.06:
-# - Now in k-fold cross validation, the coordinate perturbation is now very small and the number of refinement cycles is
-#   increased.
-# - Having more than one CRYST1 card now triggers a fatal error.
-#
-# Version 6.05:
-# - SideAide can now use secondary structure specific rotamers. This is currently only done for Ile.
-# - Stability fix for ion restraints.
-# - Changed the tolerance for the density fit score in SideAide. This reduces the bias towards new conformations a bit.
-# - Side chain flipping is now skipped for structures without protein. This gives a slight speedup for those structures.
-# - Now properly deals with different tiers of YASARA.
-# - UNL residues are now no longer deleted in local and in server mode.
-#
-# Version 6.04:
-# - Extra metal, hydrogen bond, and nucleic acid restraints are re-evaluated after rebuilding.
-#
-# Version 6.03:
-# - Jelly-body refinement can be switched off with the keyword '--nojelly'.
-# - Removed the '-s' flag for picker in TLS group selection for better comparison of TLS group sections consisting of the
-#   same number of groups.
-# - Fixed the restraint pruning for stacking restraints.
-#
-# Version 6.02:
-# - Zn-Cys4 clusters are now treated automatically. LINKs and angle restraints are added, disfulfide bridge detection in
-#   REFMAC is switched off.
-# - This option can be switched off with '--nometalrest'.
-# - More verbose reporting on additional external restraints.
-# - Hydrogen bond restraints can be used with '--hbondrest'.
-#
-# Version 6.01:
-# - Unmerged symmetry related reflections are averaged using SFTOOLS rather than randomly selected by CAD.
-# - The B-factor resetting now has a minumum of 10A^2.
-# - The detection of disulfide bridges can be switched of with the hidden keyword --noss.
-# - Moved the cispeptide detection to a separate YASARA run to improve stability.
-# - Strict NCS and local NCS are no longer mutually exclusive.
-# - Now doing a proper geometric weight optimisation in the lowest resolution category.
-#
-# Version 6.00:
-# - First version with full OS X support.
-# - Started reporting the solvent content from the density-based estimate from RWCONTENTS. Note that it is unreliable for
-#   models with deuteriums, many alternates or strictncs.
-# - Harmonic restraints are used for refinements with very small data sets (< 1000 reflections). They can be switched off
-#   with the keyword '--noharmonic'.
-# - Fix for generating dRSCC plots for really small structures.
-# - Separated the restraints from LibG from user-supplied external restraints. The user-supplied restraints have a default
-#   scale of 10, but this can be overruled in the restraint file using 'external weight scale [value]'
-# - A warning is given when there are unmerged relections.
-#
 # A complete changelog is available from the PDB-REDO website
 #
 echo " "
@@ -719,7 +538,6 @@ set CEDIT        = false  #The coordinate file is edited from the original PDB e
 set NOSF         = 0
 set REDIT        = false  #The relection file is edited from the original PDB entry
 set USEMTZ       = 0
-set COORDCONV    = 0      #The coordinates were converted from mmCIF version of PDB entry
 set DOWNLOAD     = 0
 set NOHYD        = 0
 set HYDROGEN     = ALL
@@ -748,7 +566,6 @@ set LOCAL        = 0
 set SERVER       = 0
 set NPROC        = 1     #Default number of processors to use
 set MAXPROC      = 20    #The maximum number of processors to use
-set PDBIN        =
 set XYZIN        =
 set HKLIN        =
 set MTZIN        =
@@ -812,15 +629,15 @@ if ($1 == "--local") then
 endif
 
 #Write out header
-echo " __   __   __      __   ___  __   __    __   __  __ " | tee -a $LOG
-echo "|__) |  \ |__) __ |__) |__  |  \ /  \    /   __)  / " | tee -a $LOG
-echo "|    |__/ |__)    |  \ |___ |__/ \__/   /  o __) /  " | tee -a $LOG
+echo " __   __   __     __   ___  __   __    _     __   __  " | tee -a $LOG
+echo "|__) |  \ |__) _ |__) |__  |  \ /  \  (_)   / /\ / /\ " | tee -a $LOG
+echo "|    |__/ |__)   |  \ |___ |__/ \__/  (_) o \/_/ \/_/ " | tee -a $LOG
 echo " "
 
 #Font for the header
-# _     __  __       __  _  __  _   _
-#/ \ /|  _) __) |_| |_  |_   / (_) (_|
-#\_/  | /__ __)   | __) |_) /  (_)  _|
+# __     __  __       __  _  __  _   _
+#/ /\ /|  _) __) |_| |_  |_   / (_) (_|
+#\/_/  | /__ __)   | __) |_) /  (_)  _|
 
 
 ############################################### Check for debug flags ####################################################
@@ -851,22 +668,11 @@ foreach ARG ($*)
     #Set additional flags for programs
     set RELAX = "-r"  #Relaxed mode for extractor
     set SMODE = '--server'  #Server mode for prepper
-  else if (`echo $ARG | cut -c 1-8` == "--pdbin=") then
-    #Get the file in two steps to expand relative paths, but also paths using '~'
-    set PDBIN = `echo $ARG | cut -d '=' -f 2-`
-    set PDBIN = `readlink -m $PDBIN`
-    echo "-PDB-REDO will optimise the structure model in $PDBIN" | tee -a $LOG
   else if (`echo $ARG | cut -c 1-8` == "--xyzin=") then
     #Get the file in two steps to expand relative paths, but also paths using '~'
     set XYZIN = `echo $ARG | cut -d '=' -f 2-`
     set XYZIN = `readlink -m $XYZIN`
-    #Choose the PDB file if two coordinate files are specified
-    if ($PDBIN != "") then
-      echo "-You specified two coordinate files. Using $PDBIN" | tee -a $LOG
-      set XYZIN =
-    else
-       echo "-PDB-REDO will optimise the structure model in $XYZIN" | tee -a $LOG  
-    endif    
+    echo "-PDB-REDO will optimise the structure model in $XYZIN" | tee -a $LOG     
   else if (`echo $ARG | cut -c 1-8` == "--hklin=") then
     set HKLIN = `echo $ARG | cut -d '=' -f 2-`
     set HKLIN = `readlink -m $HKLIN`
@@ -1264,7 +1070,7 @@ endif
 #For local runs make sure we have what we need
 if ($LOCAL == 1) then
   #Is there a coordinate file?
-  if ($PDBIN == "" && $XYZIN == "") then
+  if ($XYZIN == "") then
     echo " " | tee -a $LOG
     echo "FATAL ERROR!" | tee -a $LOG
     echo "------------" | tee -a $LOG
@@ -1340,68 +1146,77 @@ if ($DOWNLOAD == 1) then
 
   #Download the stuff (reflection data)
   #$WEBGET ftp://ftp.wwpdb.org/pub/pdb/data/structures/all/structure_factors/r${PDBID}sf.ent.gz
-  $WEBGET ftp://ftp.ebi.ac.uk/pub/databases/pdb/data/structures/all/structure_factors/r${PDBID}sf.ent.gz
+  $WEBGET https://www.ebi.ac.uk/pdbe/entry-files/download/r${PDBID}sf.ent
   if($status) then
     echo " o Cannot download experimental data file" | tee -a $LOG
     exit(1)
   else
     echo " o Downloaded experimental data file" | tee -a $LOG
   endif
-  gzip -df r${PDBID}sf.ent.gz
   setenv SF $WORKDIR/download
 
   #Download the stuff (model)
   #$WEBGET ftp://ftp.wwpdb.org/pub/pdb/data/structures/all/pdb/pdb${PDBID}.ent.gz
-  $WEBGET ftp://ftp.ebi.ac.uk/pub/databases/pdb/data/structures/all/pdb/pdb${PDBID}.ent.gz
+  $WEBGET https://www.ebi.ac.uk/pdbe/entry-files/download/$PDBID.cif
   if($status) then
-    echo " o Cannot download PDB file" | tee -a $LOG
-    echo "COMMENT: No PDB-format coordinate file available" >> $WHYNOT
-    echo "PDB-REDO,$PDBID"                                  >> $WHYNOT
+    echo " o Cannot download coordinate file" | tee -a $LOG
+    echo "COMMENT: No coordinate file available" >> $WHYNOT
+    echo "PDB-REDO,$PDBID"                       >> $WHYNOT
     exit(1)
   else
     echo " o Downloaded PDB file" | tee -a $LOG
   endif
-  gzip -df pdb${PDBID}.ent.gz
+  mv  $WORKDIR/download/$PDBID.cif $WORKDIR/download/$PDBID.xyz.cif
   setenv PDB $WORKDIR/download
 
   #Go back to the working directory
   cd $WORKDIR
 endif
 
-#PDB file
+#Coordinate file
 if ($NOPDB == 0) then
   if ($LOCAL == 1) then
-    if ($XYZIN != "") then
-      #Test the file type
-      if (-e $XYZIN && `grep -c ^data_ $XYZIN` > 0) then
-        #It's not a PDB file assume it is mmCIF and try to convert it.
-        $TOOLS/cif2pdb $XYZIN $WORKDIR/pdb${PDBID}.pdb >& $WORKDIR/cif2pdb.log
-        if (! -e $WORKDIR/pdb${PDBID}.pdb) then
-          echo " " | tee -a $LOG
-          echo "FATAL ERROR!" | tee -a $LOG
-          echo "------------" | tee -a $LOG
-          echo "Cannot use the input file $XYZIN. Please, upload a file in valid PDB or mmCIF format." | tee -a $LOG
-          if ($SERVER == 1) then
-            #Write out status files
-            touch $STDIR/stoppingProcess.txt
-            touch $STDIR/processStopped.txt
-          endif
-          cd $BASE
-          exit(1)
-        else
-          mv $WORKDIR/pdb${PDBID}.pdb $WORKDIR/pdb${PDBID}.ent
-        endif           
-      else   
-        cp $XYZIN $WORKDIR/pdb${PDBID}.ent
-      endif
-    else if (-e $PDBIN) then
-      #Copy PDB file
-      cp $PDBIN $WORKDIR/pdb${PDBID}.ent
+    #Test the file type
+    if (-e $XYZIN && `grep -c ^data_ $XYZIN` == 0) then
+      #It's not an mmCIF file assume it is PDB and try to convert it.
+      echo "-PDB formatted input found. Converting to mmCIF" | tee -a $LOG
+      
+      #Check whether the file comes from PHASER
+      #Is it a PDB file that came straight from PHASER?
+      if (`grep -c 'REMARK Log-Likelihood Gain' $XYZIN` != 0 && `grep -c 'BUSTER' $XYZIN` == 0) then
+        #Switch off occupancy refinement
+        set DOOCC = 0
+
+        #Report to user
+        echo " o PHASER output model detected. Switching off occupancy refinement." | tee -a $LOG
+      endif  
+      
+      #Clean the PDB file up
+      #Strip out proprietary REMARKS, USER records, gap LINKs, and poor TER records; fix LINK records (convert LINK records without distance to LINKR)
+      cat $XYZIN | grep -v -e '^REMARK [ ,a-z,A-Z][ ,a-z,A-Z][a-z,A-Z]' | grep -v -E '^TER.$' | grep -v -E '^TER$' | grep -v -E '^USER' | grep -v -E 'LINKR.{67}gap' | sed -e '/^LINK .\{69\}     /s/LINK /LINKR/g' -e '/^LINK .\{53\}$/s/LINK /LINKR/g' -e '/^LINK .\{52\}$/s/LINK /LINKR/g' > $WORKDIR/cleanpdb.pdb
+
+      #Do the file conversion
+      $TOOLS/pdb2cif $WORKDIR/cleanpdb.pdb $WORKDIR/${PDBID}.xyz.cif >& $WORKDIR/pdb2cif.log
+      if (! -e $WORKDIR/${PDBID}.xyz.cif) then
+        echo " " | tee -a $LOG
+        echo "FATAL ERROR!" | tee -a $LOG
+        echo "------------" | tee -a $LOG
+        echo "Cannot use the input file $XYZIN. Please, provide a file in valid PDB or mmCIF format." | tee -a $LOG
+        if ($SERVER == 1) then
+          #Write out status files
+          touch $STDIR/stoppingProcess.txt
+          touch $STDIR/processStopped.txt
+        endif
+        cd $BASE
+        exit(1)
+      endif           
+    else if (-e $XYZIN) then 
+      cp $XYZIN $WORKDIR/${PDBID}.xyz.cif
     else
       echo " " | tee -a $LOG
       echo "FATAL ERROR!" | tee -a $LOG
       echo "------------" | tee -a $LOG
-      echo "Cannot find the input file $PDBIN" | tee -a $LOG
+      echo "The input file $XYZIN is not accessible. Cannot continue." | tee -a $LOG
       if ($SERVER == 1) then
         #Write out status files
         touch $STDIR/stoppingProcess.txt
@@ -1411,105 +1226,37 @@ if ($NOPDB == 0) then
       exit(1)
     endif
   else
-    #Copy PDB file from different directory structures
-    if (-e $PDB/pdb${PDBID}.ent) then
-      cp $PDB/pdb${PDBID}.ent $WORKDIR/pdb${PDBID}.ent
-    else if (-e $PDB/$D2/pdb${PDBID}.ent) then
-      cp $PDB/$D2/pdb${PDBID}.ent $WORKDIR/pdb${PDBID}.ent
-    else if (-e $PDB/pdb${PDBID}.ent.gz) then
-      zcat $PDB/pdb${PDBID}.ent.gz > $WORKDIR/pdb${PDBID}.ent      
-    else if (-e $PDB/$D2/pdb${PDBID}.ent.gz) then
-      zcat $PDB/$D2/pdb${PDBID}.ent.gz > $WORKDIR/pdb${PDBID}.ent
+    #Copy coordinate file from different directory structures
+    if (-e $COORD/$PDBID.cif) then
+      cp $COORD/$PDBID.cif $WORKDIR/$PDBID.xyz.cif
+    else if (-e $COORD/$D2/$PDBID.cif) then
+      cp $COORD/$D2/$PDBID.cif $WORKDIR/$PDBID.xyz.cif
+    else if (-e $COORD/$PDBID.cif.gz) then
+      zcat $COORD/$PDBID.cif.gz > $WORKDIR/$PDBID.xyz.cif   
+    else if (-e $COORD/$D2/$PDBID.cif.gz) then
+      zcat $COORD/$D2/$PDBID.cif.gz > $WORKDIR/$PDBID.xyz.cif
     else
-      echo "-No PDB-format coordinate file" | tee -a $LOG
-      #Test for the existence of a mmCIF file
-      if (-e $COORD/$D2/${PDBID}.cif.gz) then
-        echo " o Switching to mmCIF-format coordinate file" | tee -a $LOG
-        #Count the number of unique 'chains'
-        cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software."cif-grep".used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-        
-        set NASYM = `$TOOLS/cif-grep -i '_atom_site.auth_asym_id' '.' $COORD/$D2/${PDBID}.cif.gz | sort -u | wc -l`
-        set NATOM = `$TOOLS/cif-grep -c -i '_atom_site.auth_asym_id' '.' $COORD/$D2/${PDBID}.cif.gz`
-        if ($NASYM < 63 && $NATOM < 100000) then  #Only 62 possible chainIDs and 99999 atoms in PDB format
-          echo " o Renaming chains and converting coordinate file" | tee -a $LOG
-          #Construct command for mmCQL
-          set MMCQLCMD = 
-          set IASYM = 0
-          #Loop over all single character chains and remove them as renaming options
-          set POSSIBLE = $ALFNUM
-          foreach ASYM (`$TOOLS/cif-grep -i '_atom_site.auth_asym_id' '.' $COORD/$D2/${PDBID}.cif.gz | sort -u | grep '^.$'`)
-            set POSSIBLE = `echo $POSSIBLE | tr -d "$ASYM"`
-#            echo $POSSIBLE
-          end
-
-          #Rename all chains except the ones that already have a single character
-          foreach ASYM (`$TOOLS/cif-grep -i '_atom_site.auth_asym_id' '.' $COORD/$D2/${PDBID}.cif.gz | sort -u | grep '..'`)
-            @ IASYM = ($IASYM + 1)
-            set CHAIN = `echo $POSSIBLE | cut -c $IASYM-$IASYM`
-            set MMCQLCMD = "$MMCQLCMD UPDATE pdbx_poly_seq_scheme SET pdb_strand_id = '$CHAIN' WHERE pdb_strand_id = '$ASYM'; UPDATE atom_site SET auth_asym_id = '$CHAIN' WHERE auth_asym_id = '$ASYM'; "
-          end
-
-#          echo $MMCQLCMD 
-          #Run mmCQL
-          cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.mmCQL.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-  
-          $TOOLS/mmCQL -v --force \
-          $COORD/$D2/${PDBID}.cif.gz \
-          $WORKDIR/${PDBID}_converted.pdb \
-          <<eof >& $WORKDIR/mmCQL_chains.log
-            $MMCQLCMD
-eof
-          
-          if (-e $WORKDIR/${PDBID}_converted.pdb) then
-            set COORDCONV = 1
-            cp $WORKDIR/${PDBID}_converted.pdb $WORKDIR/pdb${PDBID}.ent
-          else
-            #Report error and stop
-            echo " o mmCIF coordinate file cannot be converted" | tee -a $LOG
-            echo "COMMENT: No usable coordinate file available" >> $WHYNOT
-            echo "PDB-REDO,$PDBID"                              >> $WHYNOT
-            cd $BASE
-            exit(1)
-          endif
-        else  
-          #Report error and stop
-          echo " o mmCIF coordinate file cannot be used" | tee -a $LOG
-          echo "COMMENT: No usable coordinate file available" >> $WHYNOT
-          echo "PDB-REDO,$PDBID"                              >> $WHYNOT
-          cd $BASE
-          exit(1)
-        endif
-      else
-        #Report error and stop
-        echo "COMMENT: No coordinate file available" >> $WHYNOT
-        echo "PDB-REDO,$PDBID"                       >> $WHYNOT
-        cd $BASE
-        exit(1)
-      endif  
-    endif
+      #Report error and stop
+      echo "-No coordinate file found" | tee -a $LOG
+      echo "COMMENT: No coordinate file available" >> $WHYNOT
+      echo "PDB-REDO,$PDBID"                       >> $WHYNOT
+      cd $BASE
+      exit(1)
+    endif  
   endif
 endif
 
-
 #Cache the input file
-cp $WORKDIR/pdb${PDBID}.ent $WORKDIR/cache.pdb
+cp $WORKDIR/$PDBID.xyz.cif $WORKDIR/cache.cif
 
-#Does the input PDB file have SEQRES records?
-if (`grep -c ^SEQRES $WORKDIR/pdb${PDBID}.ent` > 0) then
-  set GOTSEQRES = 1
-else
-  set GOTSEQRES = 0
-endif
-
-
-#Check the experimental method (first through the EXPDTA record then by looking for other clues)
-if (`grep -c EXPDTA $WORKDIR/pdb${PDBID}.ent` == 0) then
+#Check the experimental method (first through the _exptl.method record then by looking for other clues)
+if (`grep -c  '_exptl.method' $WORKDIR/$PDBID.xyz.cif` == 0) then
   set ISXRAY = 1 #Assume X-ray and do not check experimental method further
 else
-  set ISXRAY = `grep EXPDTA $WORKDIR/pdb${PDBID}.ent | head -n 1 | grep -c X-RAY`
+  set ISXRAY = `$TOOLS/cif-grep -c -i _exptl.method X-RAY $WORKDIR/$PDBID.xyz.cif`
 endif
 if ($ISXRAY == 0) then #Not an X-ray structure, is it electron diffraction?
-  set ISED = `grep EXPDTA $WORKDIR/pdb${PDBID}.ent | head -n 1 | grep -c 'ELECTRON CRYSTALLOGRAPHY'`
+  set ISED = `$TOOLS/cif-grep -c -i _exptl.method 'ELECTRON CRYSTALLOGRAPHY' $WORKDIR/$PDBID.xyz.cif`
   if ($ISED == 1) then
     echo "-Switching to electron diffraction mode" | tee -a $LOG
     #Use converted X-ray to electron form factors
@@ -1518,11 +1265,50 @@ if ($ISXRAY == 0) then #Not an X-ray structure, is it electron diffraction?
     set EXPTYP     = 'ED'
     #Ignore anomalous data
     set C2CANO = ""
-  else
-    #Create a WHY_NOT comment
-    echo "-This is not an X-ray diffraction structure" | tee -a $LOG
-    echo "COMMENT: Not an X-ray structure" >> $WHYNOT
-    echo "PDB-REDO,$PDBID"                 >> $WHYNOT
+  else #Not an electron diffraction structure, is it electron microscopy?
+    set ISEM = `$TOOLS/cif-grep -c -i _exptl.method 'ELECTRON MICROSCOPY' $WORKDIR/$PDBID.xyz.cif`
+    if ($ISEM == 1) then
+      echo "-Switching to electron microscopy mode" | tee -a $LOG
+      #Use converted X-ray to electron form factors
+      set SCATTERCMD = 'source electron MB'
+      set SFTYPE     = '--electron-scattering'
+      set EXPTYP     = 'EM'
+      #Set EM-specific setting
+      set C2CANO       = ""   #Ignore anomalous data
+      set DOCENTRIFUGE = 0    #No water deletion
+      set DOPEPFLIP    = 0    #No peptide flips
+      set DOSUGARBUILD = 0    #No sugar rebuilding at all
+      set DOSCBUILD    = 0    #No sugar rebuilding at all
+      set NEWMODEL     = "-f" #Force rerefinement to finish with new model
+    else  
+      #Create a WHY_NOT comment
+      echo "-This is not a supported experimental type" | tee -a $LOG
+      echo "COMMENT: Not a supported experimental type" >> $WHYNOT
+      echo "PDB-REDO,$PDBID"                            >> $WHYNOT
+      if ($SERVER == 1) then
+        #Write out status files
+        touch $STDIR/stoppingProcess.txt
+        touch $STDIR/processStopped.txt
+      endif
+      cd $BASE
+      exit(1)
+    endif
+  endif  
+endif
+
+
+#Check for implicit strict NCS
+if (`$TOOLS/cif-grep -c -i _struct_ncs_oper.code generate $WORKDIR/$PDBID.xyz.cif` != 0) then
+  set STRICTNCS = 1 
+  set NCSSTRICT = 'ncsconstraints'
+endif
+
+#If implicit atoms are used as described in REMARK 285, create WHY_NOT comment
+if (`grep -c _pdbx_database_remark $WORKDIR/$PDBID.xyz.cif` > 0) then
+  if (`echo "select text from pdbx_database_remark where id = 285 ;" | $TOOLS/mmCQL --force $WORKDIR/$PDBID.xyz.cif | grep -c "THE ENTRY PRESENTED HERE DOES NOT CONTAIN THE COMPLETE"` != 0) then
+    echo "-This model has implicit atoms" | tee -a $LOG
+    echo "COMMENT: Asymmetric unit not complete" >> $WHYNOT
+    echo "PDB-REDO,$PDBID"                       >> $WHYNOT
     if ($SERVER == 1) then
       #Write out status files
       touch $STDIR/stoppingProcess.txt
@@ -1530,46 +1316,11 @@ if ($ISXRAY == 0) then #Not an X-ray structure, is it electron diffraction?
     endif
     cd $BASE
     exit(1)
-  endif
-endif
-
-
-#If this is a multi-entry complex, do not re-refine, create WHY_NOT comment
-if (`grep -c -E '^SPLIT' $WORKDIR/pdb${PDBID}.ent` != 0) then
-  echo "-This is part of a structure divided over multiple PDB entries" | tee -a $LOG
-  echo "COMMENT: Multi-entry complex" >> $WHYNOT
-  echo "PDB-REDO,$PDBID"              >> $WHYNOT
-  if ($SERVER == 1) then
-    #Write out status files
-    touch $STDIR/stoppingProcess.txt
-    touch $STDIR/processStopped.txt
-  endif
-  cd $BASE
-  exit(1)
-endif
-
-#Check for implicit strict NCS
-if (`grep -E '^MTRIX' $WORKDIR/pdb${PDBID}.ent | grep -c -v -E '^MTRIX'+'.{54}1'` != 0) then
-  set STRICTNCS = 1 
-  set NCSSTRICT = 'ncsconstraints'
-endif
-
-#If implicit atoms are used as described in REMARK 285, create WHY_NOT comment
-if (`grep -c -E '^REMARK 285 THE ENTRY PRESENTED HERE DOES NOT CONTAIN THE COMPLETE' $WORKDIR/pdb${PDBID}.ent` != 0) then
-  echo "-This PDB file has implicit atoms" | tee -a $LOG
-  echo "COMMENT: Asymmetric unit not complete" >> $WHYNOT
-  echo "PDB-REDO,$PDBID"                       >> $WHYNOT
-  if ($SERVER == 1) then
-    #Write out status files
-    touch $STDIR/stoppingProcess.txt
-    touch $STDIR/processStopped.txt
-  endif
-  cd $BASE
-  exit(1)
+  endif  
 endif
 
 #If it is a multi-model refinement structure, create WHY_NOT comment
-if (`grep -c -E '^ENDMDL' $WORKDIR/pdb${PDBID}.ent` != 0) then
+if (`$TOOLS/cif-grep -i _atom_site.pdbx_PDB_model_num . $WORKDIR/$PDBID.xyz.cif | sort -u | wc -l` > 1) then
   echo "-This is a multi-model structure" | tee -a $LOG
   echo "COMMENT: Multi-model refinement structure" >> $WHYNOT
   echo "PDB-REDO,$PDBID"                           >> $WHYNOT
@@ -1582,74 +1333,49 @@ if (`grep -c -E '^ENDMDL' $WORKDIR/pdb${PDBID}.ent` != 0) then
   exit(1)
 endif
 
-
-#Check to see if it is a CA-only structure
-if (`grep -E '^ATOM' $WORKDIR/pdb${PDBID}.ent | cut -c 13-16 | sort -u | wc -l` == 1) then
-  #There is only one type of atom. check to see if it is CA
-  if (`grep -E '^ATOM' $WORKDIR/pdb${PDBID}.ent | cut -c 13-16 | grep -c "CA"` != 0) then
-    echo "-This is a C-alpha-only structure" | tee -a $LOG
-    echo "COMMENT: C-alpha-only structure" >> $WHYNOT
-    echo "PDB-REDO,$PDBID"                 >> $WHYNOT
-    if ($SERVER == 1) then
-      #Write out status files
-      touch $STDIR/stoppingProcess.txt
-      touch $STDIR/processStopped.txt
-    endif
-    cd $BASE
-    exit(1)
+#Check for CA-only or CA/P-only models
+if (`$TOOLS/cif-grep -i _atom_site.label_atom_id . $WORKDIR/$PDBID.xyz.cif | sort -u | wc -l` == 1 && \
+    `$TOOLS/cif-grep -i _atom_site.label_atom_id . $WORKDIR/$PDBID.xyz.cif | head -n 1` == "CA" ) then
+  echo "-This is a C-alpha-only structure" | tee -a $LOG
+  echo "COMMENT: C-alpha-only structure" >> $WHYNOT
+  echo "PDB-REDO,$PDBID"                 >> $WHYNOT
+  if ($SERVER == 1) then
+    #Write out status files
+    touch $STDIR/stoppingProcess.txt
+    touch $STDIR/processStopped.txt
   endif
-endif
-
-#Check to see if it is a CA/P-only structure
-if (`grep -E '^ATOM' $WORKDIR/pdb${PDBID}.ent | cut -c 13-16 | sort -u | wc -l` == 2) then
-  #There is only two types of atom. check to see if they are CA and P
-  if (`grep -E '^ATOM' $WORKDIR/pdb${PDBID}.ent | cut -c 13-16 | grep -c "CA"` != 0 && \
-      `grep -E '^ATOM' $WORKDIR/pdb${PDBID}.ent | cut -c 13-16 | grep -c "P "` != 0) then
-    echo "-This is a C-alpha/backbone-phosphorus-only structure" | tee -a $LOG
-    echo "COMMENT: C-alpha/backbone-phosphorus-only structure" >> $WHYNOT
-    echo "PDB-REDO,$PDBID"                                     >> $WHYNOT
-    if ($SERVER == 1) then
-      #Write out status files
-      touch $STDIR/stoppingProcess.txt
-      touch $STDIR/processStopped.txt
-    endif
-    cd $BASE
-    exit(1)
+  cd $BASE
+  exit(1)
+else if (`$TOOLS/cif-grep -i _atom_site.label_atom_id . $WORKDIR/$PDBID.xyz.cif | sort -u | wc -l` == 2 && \
+         `$TOOLS/cif-grep -i _atom_site.label_atom_id . $WORKDIR/$PDBID.xyz.cif | grep -c CA` > 0 && \
+         `$TOOLS/cif-grep -i _atom_site.label_atom_id . $WORKDIR/$PDBID.xyz.cif | grep -x -c P` > 0 ) then
+  echo "-This is a C-alpha/backbone-phosphorus-only structure" | tee -a $LOG
+  echo "COMMENT: C-alpha/backbone-phosphorus-only structure" >> $WHYNOT
+  echo "PDB-REDO,$PDBID"                                     >> $WHYNOT
+  if ($SERVER == 1) then
+    #Write out status files
+    touch $STDIR/stoppingProcess.txt
+    touch $STDIR/processStopped.txt
   endif
+  cd $BASE
+  exit(1)
 endif
 
 
 #Is there only 1 type of residue and is it UNK?
-if (`grep -E '^ATOM' $WORKDIR/pdb${PDBID}.ent | cut -c 18-20 | sort -u | wc -l` == 1 && \
-    `grep -E '^ATOM' $WORKDIR/pdb${PDBID}.ent | cut -c 18-20 | grep -c "UNK"` != 0) then
+if (`echo "SELECT label_comp_id FROM atom_site WHERE group_PDB = 'ATOM';" | $TOOLS/mmCQL $WORKDIR/$PDBID.xyz.cif | grep -v label_comp_id | sort -u | wc -l` == 1 && \
+    `echo "SELECT label_comp_id FROM atom_site WHERE group_PDB = 'ATOM';" | $TOOLS/mmCQL $WORKDIR/$PDBID.xyz.cif | grep -v label_comp_id | head -n 1` == "UNK") then
   #Do not use autoNCS (poly-UNKs cannot be alligned properly)
   echo "-The main chain consists only of UNK residues, NCS will not be used!" | tee -a $LOG
   set DONCS = 0
   #Are there ligands or hetero compounds (count the number of different residues)
-  if (`grep -E '^ATOM|^HETATM' $WORKDIR/pdb${PDBID}.ent | cut -c 18-20 | sort -u | wc -l` == 1) then
+  if (`$TOOLS/cif-grep -i _atom_site.label_comp_id . $WORKDIR/$PDBID.xyz.cif | sort -u | wc -l` == 1) then
     echo "-This is an UNK-only structure" | tee -a $LOG
     echo "COMMENT: UNK-only structure" >> $DEBUG
     echo "PDB-REDO,$PDBID"             >> $DEBUG
   endif
 endif
 
-#Is it a PDB file that came straight from PHASER?
-if (`grep -c 'REMARK Log-Likelihood Gain' $WORKDIR/pdb${PDBID}.ent` != 0 && `grep -c 'BUSTER' $WORKDIR/pdb${PDBID}.ent` == 0) then
-  #Switch off occupancy refinement
-  set DOOCC = 0
-
-  #Report and write a debug message
-  echo "-PHASER output model detected. Switching off occupancy refinement." | tee -a $LOG
-  echo "COMMENT: PHASER model; no occupancy refinement" >> $DEBUG
-  echo "PDB-REDO,$PDBID"                                >> $DEBUG
-endif
-
-#Remove SIGATM and SIGUIJ records
-if (`grep -c '^SIGATM' $WORKDIR/pdb${PDBID}.ent` > 0 || `grep -c '^SIGATM' $WORKDIR/pdb${PDBID}.ent` > 0) then
-  echo "-Removing SIGATM and SIGUIJ records." | tee -a $LOG
-  cp $WORKDIR/pdb${PDBID}.ent $WORKDIR/pdb${PDBID}.bak
-  cat $WORKDIR/pdb${PDBID}.bak | grep -v '^SIGATM' | grep -v '^SIGUIJ' > $WORKDIR/pdb${PDBID}.ent
-endif
 
 #Structure factors
 if ($NOSF == 0) then
@@ -1799,11 +1525,9 @@ eof
     if (-e $SF/r${PDBID}sf.ent) then
       cp $SF/r${PDBID}sf.ent $WORKDIR/
     else if (-e $SF/$D2/r${PDBID}sf.ent.gz) then
-      cp $SF/$D2/r${PDBID}sf.ent.gz $WORKDIR/
-      gzip -df $WORKDIR/r${PDBID}sf.ent.gz
+      zcat $SF/$D2/r${PDBID}sf.ent.gz > $WORKDIR/r${PDBID}sf.ent
     else if (-e $SF/r${PDBID}sf.ent.gz) then
-      cp $SF/r${PDBID}sf.ent.gz $WORKDIR/
-      gzip -df $WORKDIR/r${PDBID}sf.ent.gz
+      zcat $SF/r${PDBID}sf.ent.gz > $WORKDIR/r${PDBID}sf.ent
     else
       echo "-No structure factors found" | tee -a $LOG
       if ($SERVER == 1) then
@@ -1823,79 +1547,48 @@ else
 endif
 
 
-#Strip out proprietary REMARKS, USER records, gap LINKs, and poor TER records
-cat $WORKDIR/pdb$PDBID.ent | grep -v -e '^REMARK [ ,a-z,A-Z][ ,a-z,A-Z][a-z,A-Z]' | grep -v -E '^TER.$' | grep -v -E '^TER$' | grep -v -E '^USER' | grep -v -E 'LINKR.{67}gap' > $WORKDIR/pdb$PDBID.pdb
-
-#Improve LINK compatibility (convert LINK records without distance to LINKR)
-sed -i -e '/^LINK .\{69\}     /s/LINK /LINKR/g' -e '/^LINK .\{53\}$/s/LINK /LINKR/g' -e '/^LINK .\{52\}$/s/LINK /LINKR/g' $WORKDIR/pdb$PDBID.pdb
-
-#De-Buster the file if needed
-if (`grep -c 'REMARK --------------------- added by autoBUSTER -' $WORKDIR/pdb${PDBID}.pdb` > 0) then
-  #Give detailed warning message
-  if ($LOCAL == 1) then
-    echo " " | tee -a $LOG
-    echo "WARNING!" | tee -a $LOG
-    echo "------------" | tee -a $LOG
-    echo "Your input coordinate file has Buster-specific format errors. Trying to compensate." | tee -a $LOG 
-    echo " " | tee -a $LOG
-  else
-    echo "-The coordinate file has format errors. Trying to compensate." | tee -a $LOG
-  endif
-  #De-Buster and restart
-  cp $WORKDIR/pdb${PDBID}.pdb $WORKDIR/pdb${PDBID}.bak
-  set DEBUST = `grep -n 'REMARK --------------------- added by autoBUSTER -' $WORKDIR/pdb${PDBID}.bak | tail -n 1 | cut -d ':' -f 1 | awk '{print $1 +1}'`
-  tail -n +$DEBUST $WORKDIR/pdb${PDBID}.bak > $WORKDIR/pdb${PDBID}.pdb
-endif
-
-#De-Phenix the file if needed
-if (`grep -c 'REMARK IF THIS FILE IS FOR PDB DEPOSITION: REMOVE ALL FROM THIS LINE UP.' $WORKDIR/pdb${PDBID}.pdb` > 0) then
-  #Give detailed warning message
-  if ($LOCAL == 1) then
-    echo " " | tee -a $LOG
-    echo "WARNING!" | tee -a $LOG
-    echo "------------" | tee -a $LOG
-    echo "Your input coordinate file has phenix.refine-specific format errors. Trying to compensate." | tee -a $LOG
-    echo " " | tee -a $LOG
-  else
-    echo "-The coordinate file has format errors. Trying to compensate." | tee -a $LOG
-  endif
-  #De-Phenix and restart
-  cp $WORKDIR/pdb${PDBID}.pdb $WORKDIR/pdb${PDBID}.bak
-  grep -A 250000 'REMARK IF THIS FILE IS FOR PDB DEPOSITION:' $WORKDIR/pdb${PDBID}.bak | grep -v 'REMARK IF THIS FILE IS FOR PDB DEPOSITION:' | grep . >  $WORKDIR/pdb${PDBID}.pdb
-endif
-
-
-#Check the cell dimensions
+#Check the cell dimensions. Make dimensions consistent between model and data (a small amount is added to avoid rounding errors).
 #Get model cell dimensions and space group from coordinate file
-if (`grep -c ^CRYST1 $WORKDIR/pdb${PDBID}.pdb` != 1) then
-  set MAAXIS = NA
-  set MBAXIS = NA
-  set MCAXIS = NA 
-  set MALPHA = NA
-  set MBETA  = NA
-  set MGAMMA = NA
-  set MSPACE = 
-else 
-  set MAAXIS = `grep ^CRYST1 $WORKDIR/pdb${PDBID}.pdb | cut -c 7-15`
-  set MBAXIS = `grep ^CRYST1 $WORKDIR/pdb${PDBID}.pdb | cut -c 16-24`
-  set MCAXIS = `grep ^CRYST1 $WORKDIR/pdb${PDBID}.pdb | cut -c 25-33`
-  set MALPHA = `grep ^CRYST1 $WORKDIR/pdb${PDBID}.pdb | cut -c 34-40`
-  set MBETA  = `grep ^CRYST1 $WORKDIR/pdb${PDBID}.pdb | cut -c 41-47`
-  set MGAMMA = `grep ^CRYST1 $WORKDIR/pdb${PDBID}.pdb | cut -c 48-54`
-  set MSPACE = `grep ^CRYST1 $WORKDIR/pdb${PDBID}.pdb | cut -c 56-66 | sed "s/P 21 21 2 A/P 21 21 2 (a)/g" | sed "s/P 1-       /P -1/g"`
-endif
+set MAAXIS = `$TOOLS/cif-grep -i _cell.angle_alpha . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.3f\n", $1 + 0.000001}'`
+set MBAXIS = `$TOOLS/cif-grep -i _cell.angle_beta  . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.3f\n", $1 + 0.000001}'`
+set MCAXIS = `$TOOLS/cif-grep -i _cell.angle_gamma . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.3f\n", $1 + 0.000001}'`
+set MALPHA = `$TOOLS/cif-grep -i _cell.length_a . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.2f\n", $1 + 0.000001}'`
+set MBETA  = `$TOOLS/cif-grep -i _cell.length_b . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.2f\n", $1 + 0.000001}'`
+set MGAMMA = `$TOOLS/cif-grep -i _cell.length_c . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.2f\n", $1 + 0.000001}'`
+set MSPACE = `$TOOLS/cif-grep -i _symmetry.space_group_name_H-M . $WORKDIR/$PDBID.xyz.cif | sed "s/P 21 21 2 A/P 21 21 2 (a)/g" | sed "s/P 1- /P -1/g"`
 
 #Read the cell dimensions for validation
-set RAAXIS = `grep _cell.length_a $WORKDIR/r${PDBID}sf.ent | head -n 1 | awk '{printf "%.3f\n", int(1000*$2 + 0.5)/1000}'`
-set RBAXIS = `grep _cell.length_b $WORKDIR/r${PDBID}sf.ent | head -n 1 | awk '{printf "%.3f\n", int(1000*$2 + 0.5)/1000}'`
-set RCAXIS = `grep _cell.length_c $WORKDIR/r${PDBID}sf.ent | head -n 1 | awk '{printf "%.3f\n", int(1000*$2 + 0.5)/1000}'`
-set RALPHA = `grep _cell.angle_alpha $WORKDIR/r${PDBID}sf.ent | head -n 1 | awk '{printf "%.2f\n", int(100*$2 + 0.5)/100}'`
-set RBETA  = `grep _cell.angle_beta $WORKDIR/r${PDBID}sf.ent  | head -n 1 | awk '{printf "%.2f\n", int(100*$2 + 0.5)/100}'`
-set RGAMMA = `grep _cell.angle_gamma $WORKDIR/r${PDBID}sf.ent | head -n 1 | awk '{printf "%.2f\n", int(100*$2 + 0.5)/100}'`
-set RSPACE = `grep _symmetry.space_group_name_H-M $WORKDIR/r${PDBID}sf.ent | head -n 1 | cut -d "'" -f 2 | sed "s/P 21 21 2 A/P 21 21 2 (a)/g" | sed "s/P 1-       /P -1/g"`
-#Contingency for alternative quote use 
-if (`echo $RSPACE | grep -c space_group` != 0) then
-  set RSPACE = `grep _symmetry.space_group_name_H-M $WORKDIR/r${PDBID}sf.ent | head -n 1 | cut -d '"' -f 2 | sed "s/P 21 21 2 A/P 21 21 2 (a)/g" | sed "s/P 1-       /P -1/g"`
+set RAAXIS = `$TOOLS/cif-grep -i _cell.angle_alpha . $WORKDIR/r${PDBID}sf.ent | awk '{printf "%.3f\n", $1 + 0.000001}'`
+set RBAXIS = `$TOOLS/cif-grep -i _cell.angle_beta  . $WORKDIR/r${PDBID}sf.ent | awk '{printf "%.3f\n", $1 + 0.000001}'`
+set RCAXIS = `$TOOLS/cif-grep -i _cell.angle_gamma . $WORKDIR/r${PDBID}sf.ent | awk '{printf "%.3f\n", $1 + 0.000001}'`
+set RALPHA = `$TOOLS/cif-grep -i _cell.length_a . $WORKDIR/r${PDBID}sf.ent | awk '{printf "%.2f\n", $1 + 0.000001}'`
+set RBETA  = `$TOOLS/cif-grep -i _cell.length_b . $WORKDIR/r${PDBID}sf.ent | awk '{printf "%.2f\n", $1 + 0.000001}'`
+set RGAMMA = `$TOOLS/cif-grep -i _cell.length_c . $WORKDIR/r${PDBID}sf.ent | awk '{printf "%.2f\n", $1 + 0.000001}'`
+set RSPACE = `$TOOLS/cif-grep -i _symmetry.space_group_name_H-M . $WORKDIR/r${PDBID}sf.ent | sed "s/P 21 21 2 A/P 21 21 2 (a)/g" | sed "s/P 1- /P -1/g"`
+
+
+#Check whether the space groups match
+if ("$MSPACE" != "$RSPACE") then
+  #This needs to be solved first
+  if ($LOCAL == 1) then
+    echo " " | tee -a $LOG
+    echo "FATAL ERROR!" | tee -a $LOG
+    echo "------------" | tee -a $LOG
+    echo "The space group in your model ($MSPACE) and your reflection data ($RSPACE) do not match! Please, correct your input data." | tee -a $LOG
+  else  
+    echo "-Space group conflict. Cannot continue."   | tee -a $LOG
+  endif
+  #Write WHYNOT information:
+  echo "COMMENT: Space group conflict" >> $WHYNOT
+  echo "PDB-REDO,$PDBID"               >> $WHYNOT
+  
+  if ($SERVER == 1) then
+    #Write out status files
+    touch $STDIR/stoppingProcess.txt
+    touch $STDIR/processStopped.txt
+  endif
+  cd $BASE
+  exit(1)
 endif
 
 #Give a warning if the cell dimensions do not match
@@ -1918,17 +1611,16 @@ mmcqlrun:
 
   echo "-Running mmCQL" | tee -a $LOG
   #Reset the cell dimensions
-  cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.mmCQL.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
   
   $TOOLS/mmCQL -v --force \
-  $WORKDIR/pdb${PDBID}.pdb \
-  $WORKDIR/${PDBID}_cell.pdb \
+  $WORKDIR/$PDBID.xyz.cif \
+  $WORKDIR/${PDBID}_cell.cif \
   <<eof >& $WORKDIR/mmCQL.log
     UPDATE cell SET length_a = $RAAXIS, length_b = $RBAXIS, length_c = $RCAXIS, angle_alpha = $RALPHA, angle_beta = $RBETA, angle_gamma = $RGAMMA;
 eof
 
   #Check the file
-  if (-z $WORKDIR/${PDBID}_cell.pdb || ! -e $WORKDIR/${PDBID}_cell.pdb) then
+  if (-z $WORKDIR/${PDBID}_cell.cif || ! -e $WORKDIR/${PDBID}_cell.cif) then
     #Something is really wrong. Halt and give WHY_NOT comment
     echo "COMMENT: mmCQL: cannot parse structure model" >> $WHYNOT
     echo "PDB-REDO,$PDBID"                              >> $WHYNOT
@@ -1952,7 +1644,7 @@ eof
     exit(1)
   endif    
 else 
-  cp $WORKDIR/pdb${PDBID}.pdb $WORKDIR/${PDBID}_cell.pdb 
+  cp $WORKDIR/$PDBID.xyz.cif $WORKDIR/${PDBID}_cell.cif 
 endif
 
 
@@ -1965,19 +1657,11 @@ if ($LOCAL == 0) then
   cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq --arg rrevis $RREVIS '.data.reflections_revision |= $rrevis' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
   
   #Set the version of the coordinates
-  if ($COORDCONV == 1) then
-    #mmCIF model is used 
-    set CREVMAJOR = `$TOOLS/cif-grep -i '_pdbx_audit_revision_history.major_revision' '.' $COORD/$D2/${PDBID}.cif.gz | sort -n | tail -n 1`
-    cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq --arg crevmajor $CREVMAJOR '.data.coordinates_revision_major_mmCIF |= $crevmajor' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
+  set CREVMAJOR = `$TOOLS/cif-grep -i '_pdbx_audit_revision_history.major_revision' '.' $COORD/$D2/${PDBID}.cif.gz | sort -n | tail -n 1`
+  cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq --arg crevmajor $CREVMAJOR '.data.coordinates_revision_major_mmCIF |= $crevmajor' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
     
-    set CREVMINOR = `echo "SELECT minor_revision FROM pdbx_audit_revision_history WHERE major_revision = $CREVMAJOR;" | $TOOLS/mmCQL $COORD/$D2/${PDBID}.cif.gz >& $WORKDIR/temp.log &&  sort -n $WORKDIR/temp.log | grep -v 'minor_revision' | grep -v 'valid' | tail -n 1`
-    cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq --arg crevminor $CREVMINOR '.data.coordinates_revision_minor_mmCIF |= $crevminor' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-  else
-    #PDB model is used
-    set CDATE  = `grep -e '^REVDAT....  ' $WORKDIR/pdb$PDBID.ent | cut -c 8- | sort -n | cut -c 7-15 | tail -n 1`
-    set CDATEC = `date -d $CDATE "+%Y-%m-%d"`
-    cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq --arg cdate $CDATEC '.data.coordinates_revision_date_pdb |= $cdate' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-  endif
+  set CREVMINOR = `echo "SELECT minor_revision FROM pdbx_audit_revision_history WHERE major_revision = $CREVMAJOR;" | $TOOLS/mmCQL $COORD/$D2/${PDBID}.cif.gz >& $WORKDIR/temp.log &&  sort -n $WORKDIR/temp.log | grep -v 'minor_revision' | grep -v 'valid' | tail -n 1`
+  cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq --arg crevminor $CREVMINOR '.data.coordinates_revision_minor_mmCIF |= $crevminor' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
 endif
 
 #Setup restraint library file for ligands and LINKs
@@ -2015,16 +1699,15 @@ renumbered:
 #Perform DEFY flips before reannotating any LINKs. PROGRAM: flipper
 echo " o Performing DEFY flips" | tee -a $LOG
 $TOOLS/flipper -v \
-$WORKDIR/${PDBID}_cell.pdb \
+$WORKDIR/${PDBID}_cell.cif \
 $DICTCMD \
--o $WORKDIR/${PDBID}_flipper.pdb >& $WORKDIR/flipper.log
+-o $WORKDIR/${PDBID}_flipper.cif >& $WORKDIR/flipper.log
 
 #Contingency for flipper failure
-if (! -e $WORKDIR/${PDBID}_flipper.pdb) then
-  cp $WORKDIR/${PDBID}_cell.pdb $WORKDIR/${PDBID}_flipper.pdb
+if (! -e $WORKDIR/${PDBID}_flipper.cif) then
+  cp $WORKDIR/${PDBID}_cell.cif $WORKDIR/${PDBID}_flipper.cif
   
   #See if this is an error or note
-#  if (`grep -c '
   echo "   * Error running flipper"   | tee -a $LOG
   echo "COMMENT: flipper: general error" >> $DEBUG
   echo "PDB-REDO,$PDBID"                 >> $DEBUG
@@ -2034,18 +1717,18 @@ endif
 echo " o Checking carbohydrates" | tee -a $LOG
 echo "   * Running carbonanza"   | tee -a $LOG
 $TOOLS/carbonanza -v \
-$WORKDIR/${PDBID}_flipper.pdb \
+$WORKDIR/${PDBID}_flipper.cif \
 $DICTCMD \
--o $WORKDIR/${PDBID}_carbonanza.pdb  >& $WORKDIR/carbonanza.log
+-o $WORKDIR/${PDBID}_carbonanza.cif  >& $WORKDIR/carbonanza.log
 
 #Do we have a new model; then copy the new model
-if (-e $WORKDIR/${PDBID}_carbonanza.pdb) then
+if (-e $WORKDIR/${PDBID}_carbonanza.cif) then
   if (`grep -c 'Generating LINK record' $WORKDIR/carbonanza.log` > 0) then
     echo "   * Carbonanza added `grep -c 'Generating LINK record' $WORKDIR/carbonanza.log` new LINKs"   | tee -a $LOG
   endif 
 else  
   #Copy the old model
-  cp $WORKDIR/${PDBID}_flipper.pdb $WORKDIR/${PDBID}_carbonanza.pdb
+  cp $WORKDIR/${PDBID}_flipper.cif $WORKDIR/${PDBID}_carbonanza.cif
 endif
 
 renumbered:
@@ -2058,8 +1741,8 @@ if ($DOMETALREST == 1) then
   
   echo " o Running Platonyzer" | tee -a $LOG
   $TOOLS/platonyzer -v \
-  $WORKDIR/${PDBID}_carbonanza.pdb \
-  -o $WORKDIR/${PDBID}_platonyzed.pdb \
+  $WORKDIR/${PDBID}_carbonanza.cif \
+  -o $WORKDIR/${PDBID}_platonyzed.cif \
   --delete-vdw-rest \
   >& $WORKDIR/platonyzer.log
   
@@ -2071,10 +1754,10 @@ if ($DOMETALREST == 1) then
       set METALCMD = "@$WORKDIR/metal.rest"
     endif
   else  
-    cp $WORKDIR/${PDBID}_carbonanza.pdb $WORKDIR/${PDBID}_platonyzed.pdb
+    cp $WORKDIR/${PDBID}_carbonanza.cif $WORKDIR/${PDBID}_platonyzed.cif
   endif
 else  
-  cp $WORKDIR/${PDBID}_carbonanza.pdb $WORKDIR/${PDBID}_platonyzed.pdb
+  cp $WORKDIR/${PDBID}_carbonanza.cif $WORKDIR/${PDBID}_platonyzed.cif
 endif
 
 #Delete atoms
@@ -2084,7 +1767,7 @@ echo " o Running prepper" | tee -a $LOG
 #Run prepper to remove all hydrogens, deuteriums, atoms with type X, unknown ligands (UNL), UNK atoms not described in
 #the refmac library, and superfluous carbohydrate oxygen atoms. Also remove crazy LINKs. PROGRAM: prepper
 $TOOLS/prepper \
-$WORKDIR/${PDBID}_platonyzed.pdb \
+$WORKDIR/${PDBID}_platonyzed.cif \
 -o $WORKDIR/${PDBID}_prepped.pdb \
 -v $SMODE \
 --pdb-redo-data $TOOLS/pdb-redo-data.cif \
@@ -2138,67 +1821,27 @@ if (! -e $WORKDIR/${PDBID}_prepped.pdb || -z $WORKDIR/${PDBID}_prepped.pdb) then
   endif    
   #Check for other problems
   if (`grep -c 'Error trying to load file' $WORKDIR/prepper.log` != 0) then
-    #The PDB file is fishy. Can the problem be solved?
-    if (`grep -c 'REMARK IF THIS FILE IS FOR PDB DEPOSITION: REMOVE ALL FROM THIS LINE UP.' $WORKDIR/${PDBID}_platonyzed.pdb` > 0) then
-      #Give detailed warning message
-      if ($LOCAL == 1) then
-        echo " " | tee -a $LOG
-        echo "WARNING!" | tee -a $LOG
-        echo "------------" | tee -a $LOG
-        echo "Your input coordinate file has phenix.refine-specific format errors. Trying to compensate." | tee -a $LOG
-        echo "Diagnostic output from prepper:" | tee -a $LOG
-        echo " " | tee -a $LOG
-        grep -E -v 'Expected|Ignoring' $WORKDIR/prepper.log | tee -a $LOG
-        echo " " | tee -a $LOG
-      else
-        echo "   * The coordinate file has format errors. Trying to compensate." | tee -a $LOG
+    #Something is really wrong. Halt and give WHY_NOT comment
+    echo "COMMENT: prepper: cannot parse structure model" >> $WHYNOT
+    echo "PDB-REDO,$PDBID"                                >> $WHYNOT
+    #Give detailed help message
+    if ($LOCAL == 1) then
+      echo " " | tee -a $LOG
+      echo "FATAL ERROR!" | tee -a $LOG
+      echo "------------" | tee -a $LOG
+      echo "Your input model is not valid (enough) PDB or mmCIF format." | tee -a $LOG
+      echo "Diagnostic output from prepper:" | tee -a $LOG
+      echo " " | tee -a $LOG
+      grep -E -v 'Expected|Ignoring' $WORKDIR/prepper.log | tee -a $LOG
+      if ($SERVER == 1) then
+        #Write out status files
+        touch $STDIR/stoppingProcess.txt
+        touch $STDIR/processStopped.txt
       endif
-      #De-phenix and restart
-      cp $WORKDIR/${PDBID}_platonyzed.pdb $WORKDIR/${PDBID}_platonyzed.bak
-      grep -A 250000 'REMARK IF THIS FILE IS FOR PDB DEPOSITION:' $WORKDIR/${PDBID}_platonyzed.bak | grep -v 'REMARK IF THIS FILE IS FOR PDB DEPOSITION:' | grep . > $WORKDIR/${PDBID}_platonyzed.pdb	    
-      goto prepperrun
-    else if (`grep -c 'REMARK --------------------- added by autoBUSTER -' $WORKDIR/${PDBID}_platonyzed.pdb` > 0) then
-      #Give detailed warning message
-      if ($LOCAL == 1) then
-        echo " " | tee -a $LOG
-        echo "WARNING!" | tee -a $LOG
-        echo "------------" | tee -a $LOG
-        echo "Your input coordinate file has Buster-specific format errors. Trying to compensate." | tee -a $LOG
-        echo "Diagnostic output from prepper:" | tee -a $LOG
-        echo " " | tee -a $LOG
-        grep -E -v 'Expected|Ignoring' $WORKDIR/prepper.log | tee -a $LOG
-        echo " " | tee -a $LOG
-      else
-        echo "   * The coordinate file has format errors. Trying to compensate." | tee -a $LOG
-      endif
-      #De-phenix and restart
-      cp $WORKDIR/${PDBID}_platonyzed.pdb $WORKDIR/${PDBID}_platonyzed.bak
-      set DEBUST = `grep -n 'REMARK --------------------- added by autoBUSTER -' $WORKDIR/${PDBID}_platonyzed.pdb | tail -n 1 | cut -d ':' -f 1 | awk '{print $1 +1}'`
-      tail -n +$DEBUST $WORKDIR/${PDBID}_platonyzed.bak > $WORKDIR/${PDBID}_platonyzed.pdb
-      goto prepperrun
     else
-      #Something is really wrong. Halt and give WHY_NOT comment
-      echo "COMMENT: prepper: cannot parse structure model" >> $WHYNOT
-      echo "PDB-REDO,$PDBID"                                >> $WHYNOT
-      #Give detailed help message
-      if ($LOCAL == 1) then
-        echo " " | tee -a $LOG
-        echo "FATAL ERROR!" | tee -a $LOG
-        echo "------------" | tee -a $LOG
-        echo "Your input model is not valid (enough) PDB or mmCIF format." | tee -a $LOG
-        echo "Diagnostic output from prepper:" | tee -a $LOG
-        echo " " | tee -a $LOG
-        grep -E -v 'Expected|Ignoring' $WORKDIR/prepper.log | tee -a $LOG
-        if ($SERVER == 1) then
-          #Write out status files
-          touch $STDIR/stoppingProcess.txt
-          touch $STDIR/processStopped.txt
-        endif
-      else
-        echo "   * The input model is not valid enough to parse. Exit." | tee -a $LOG	  
-      endif   
-      exit(1)
-    endif
+      echo "   * The input model is not valid enough to parse. Exit." | tee -a $LOG	  
+    endif   
+    exit(1)
   endif    
 endif
   
@@ -2218,19 +1861,19 @@ c2cagain:
 #PROGRAM: cif2cif
 $TOOLS/cif2cif $C2CANO $USTATUS $FEWREFS $INTENS $SIGMA $C2CCONV \
 $WORKDIR/r${PDBID}sf.ent \
-$WORKDIR/$PDBID.cif \
+$WORKDIR/$PDBID.hkl.cif \
 $WAVELCACHE \
 > $WORKDIR/${PDBID}c2c.log
 
 #Success or not?
-if (-e $WORKDIR/$PDBID.cif) then
+if (-e $WORKDIR/$PDBID.hkl.cif) then
 
   #Check for status flag column (only once)
   if ($?GOTR) then
     #GOTR is already set. Do nothing.
   else
     #GOTR is 1 if the status flag (R/Rfree) is used, 0 if not
-    set GOTR = `grep -c _refln.status $WORKDIR/$PDBID.cif`
+    set GOTR = `grep -c _refln.status $WORKDIR/$PDBID.hkl.cif`
     if ($GOTR == 0) then
       #Check the reason for the missing set
       if (`grep -c 'Warning: too small R-free set.' $WORKDIR/${PDBID}c2c.log` != 0) then
@@ -2271,7 +1914,7 @@ if (`grep -c 'using the -g switch!' $WORKDIR/${PDBID}c2c.log` != 0) then
 
   #Go back to cif2cif, now ignorig the sigma column.
   mv $WORKDIR/${PDBID}c2c.log $WORKDIR/${PDBID}c2cv2.log
-  mv $WORKDIR/$PDBID.cif $WORKDIR/${PDBID}_badsig.cif
+  mv $WORKDIR/$PDBID.hkl.cif $WORKDIR/${PDBID}_badsig.cif
   set SIGMA = '-g'
   goto c2cagain
 endif
@@ -2299,12 +1942,12 @@ endif
 
 #Check for phase information (only for electron diffraction)
 if ($ISED == 1) then
-  if (`grep -c '_refln.pdbx_HL_A_iso' $WORKDIR/$PDBID.cif` != 0) then
+  if (`grep -c '_refln.pdbx_HL_A_iso' $WORKDIR/$PDBID.hkl.cif` != 0) then
     echo " o Experimental phases in HL format will be used"     | tee -a $LOG
     set PHASES = "HLA=HLA HLB=HLB HLC=HLC HLD=HLD"
     set TWIN   =     #No detwinning
     set DOTWIN = 0
-  else if (`grep -c '_refln.phase_meas' $WORKDIR/$PDBID.cif` != 0) then
+  else if (`grep -c '_refln.phase_meas' $WORKDIR/$PDBID.hkl.cif` != 0) then
     echo " o Experimental phases with figures of merit will be used" | tee -a $LOG
     set PHASES = "PHIB=PHIB FOM=FOM"
     set TWIN   =     #No detwinning
@@ -2313,7 +1956,7 @@ if ($ISED == 1) then
 endif
 
 #Report on anomalous data
-if (`grep -c '_refln.pdbx_F_plus' $WORKDIR/$PDBID.cif` != 0 || `grep -c '_refln.pdbx_I_plus' $WORKDIR/$PDBID.cif` != 0) then
+if (`grep -c '_refln.pdbx_F_plus' $WORKDIR/$PDBID.hkl.cif` != 0 || `grep -c '_refln.pdbx_I_plus' $WORKDIR/$PDBID.hkl.cif` != 0) then
   if (`echo $PHASES | cut -c 1` == "") then
     echo " o Anomalous data will be used to calculate anomalous maps" | tee -a $LOG
   endif
@@ -2326,7 +1969,7 @@ echo "-Extracting data from the PDB file" | tee -a $LOG
 #PROGRAM: extractor
 $TOOLS/extractor -f $RELAX \
 $WORKDIR/${PDBID}_prepped.pdb \
-$WORKDIR/${PDBID}.cif \
+$WORKDIR/${PDBID}.hkl.cif \
 $CLIBD_MON/list/mon_lib_list.cif \
 $TOOLS/pdb_redo.dat \
 $WORKDIR/$PDBID.extracted \
@@ -2461,7 +2104,7 @@ set TITLE      = "`tail -n 1 $WORKDIR/$PDBID.extracted`"
 
 #Check for strict NCS and count the number of atoms
 #Calculate the number of atoms in the refinement...
-set ATMCNT = `grep -c -E '^[AH][TE][OT][MA]' $WORKDIR/${PDBID}_prepped.pdb`
+set ATMCNT = `grep -c -E '^[AH][TE][OT][MA]' $WORKDIR/${PDBID}_prepped.pdb` 
 set NMTRIX  = "1"
 #... if strict NCS is used, multiply the apparent number of atoms with the number of MTRIX records
 if ($STRICTNCS == 1) then
@@ -2488,7 +2131,7 @@ endif
 
 #Get the sequence
 if ($INSEQ != "") then
-  echo " o Importing amino acid sequence" | tee -a $LOG
+  echo "-Importing amino acid sequence" | tee -a $LOG
   cp $INSEQ $WORKDIR/user.fasta
   set FASTAIN = "-fastain $WORKDIR/user.fasta"
 endif
@@ -2535,8 +2178,9 @@ if ($GOT_PROT == 'T') then
       set TRUSTSEQ = 1
     endif
   else  
-    #Check whether there was a dodgy input file
-    if (`grep -c '^SEQRES' $WORKDIR/cache.pdb` == 0) then
+    #Is there a sequence defined in the input file?
+    if (`$TOOLS/cif-grep -c -i _entity_poly.pdbx_seq_one_letter_code_can . $WORKDIR/cache.cif` == 0 && \
+        `$TOOLS/cif-grep -c -i _entity_poly.pdbx_seq_one_letter_code . $WORKDIR/cache.cif`) then
       set TRUSTSEQ = 1
     endif
   endif
@@ -2648,11 +2292,11 @@ if ($RFACT == 0.9990) then
 endif
 
 #Obtain solvent model from REMARK records
-if (`grep '^REMARK   3' $WORKDIR/cache.pdb | grep 'METHOD USED' | grep -c -E 'BABINET|SWAT|BULK|MOEWS|KRETSINGER|TNT'` != 0) then
+if (`$TOOLS/cif-grep -i _refine.solvent_model_details . $WORKDIR/cache.cif | grep -c -E 'BABINET|SWAT|BULK|MOEWS|KRETSINGER|TNT|DRIESSEN|EXPONENTIAL|J.MOL.BIOL'` != 0) then
   set SOLVENT = BULK
 endif
 #Fall back to a simple model when the keywords 'FLAT' or 'CNS BULK' are found.
-if (`grep '^REMARK   3' $WORKDIR/cache.pdb | grep 'METHOD USED' | grep -c -E 'MASK|FLAT|CNS BULK'` != 0) then
+if (`$TOOLS/cif-grep -i _refine.solvent_model_details . $WORKDIR/cache.cif |  grep -c -E 'MASK|FLAT|CNS'` != 0) then
   set SOLVENT = SIMP
 endif
 
@@ -2664,7 +2308,7 @@ mtzmaking:
 
 #Import CIF file (using all reflections). PROGRAM: cif2mtz
 cif2mtz \
-HKLIN  $WORKDIR/$PDBID.cif \
+HKLIN  $WORKDIR/$PDBID.hkl.cif \
 HKLOUT $WORKDIR/raw.mtz \
 <<eof >> $WORKDIR/mtz_creation.log
   END
@@ -2682,18 +2326,18 @@ if ($status) then
 endif
 
 #Remove the phase columns if there is anomalous data and we do not need to do phased refinement
-if (`grep -c '_refln.pdbx_F_plus' $WORKDIR/$PDBID.cif` != 0 || `grep -c '_refln.pdbx_I_plus' $WORKDIR/$PDBID.cif` != 0) then
+if (`grep -c '_refln.pdbx_F_plus' $WORKDIR/$PDBID.hkl.cif` != 0 || `grep -c '_refln.pdbx_I_plus' $WORKDIR/$PDBID.hkl.cif` != 0) then
   #We have anomalous data, do we also have phases?
-  if (`grep -c '_refln.pdbx_HL_A_iso' $WORKDIR/$PDBID.cif` != 0 || `grep -c '_refln.phase_meas' $WORKDIR/$PDBID.cif` != 0) then
+  if (`grep -c '_refln.pdbx_HL_A_iso' $WORKDIR/$PDBID.hkl.cif` != 0 || `grep -c '_refln.phase_meas' $WORKDIR/$PDBID.hkl.cif` != 0) then
     #Do we need phased refinement?
     if (`echo $PHASES | cut -c 1` == "") then
       #Make a back-up
       cp $WORKDIR/raw.mtz $WORKDIR/raw_phase.mtz
 
       #Which labels must be removed
-      if (`grep -c '_refln.pdbx_HL_A_iso' $WORKDIR/$PDBID.cif` != 0 && `grep -c '_refln.phase_meas' $WORKDIR/$PDBID.cif` != 0) then
+      if (`grep -c '_refln.pdbx_HL_A_iso' $WORKDIR/$PDBID.hkl.cif` != 0 && `grep -c '_refln.phase_meas' $WORKDIR/$PDBID.hkl.cif` != 0) then
         set DELLABEL = "HLA HLB HLC HLD PHIB FOM"
-      else if (`grep -c '_refln.pdbx_HL_A_iso' $WORKDIR/$PDBID.cif` != 0) then
+      else if (`grep -c '_refln.pdbx_HL_A_iso' $WORKDIR/$PDBID.hkl.cif` != 0) then
         set DELLABEL = "HLA HLB HLC HLD"
       else
         set DELLABEL = "PHIB FOM"
@@ -2733,9 +2377,9 @@ endif
 #Returnpoint
 wavelengthadd:
 
-if (`grep -c '_diffrn_radiation_wavelength.wavelength' $WORKDIR/$PDBID.cif` != 0) then
+if (`grep -c '_diffrn_radiation_wavelength.wavelength' $WORKDIR/$PDBID.hkl.cif` != 0) then
   #Get the wavelenghth
-  set WAVELENGTH = `grep '_diffrn_radiation_wavelength.wavelength' $WORKDIR/$PDBID.cif | awk '{print $2}'`
+  set WAVELENGTH = `grep '_diffrn_radiation_wavelength.wavelength' $WORKDIR/$PDBID.hkl.cif | awk '{print $2}'`
 else if ($WAVELPDB != '0.00000') then
   set WAVELENGTH = $WAVELPDB
 else
@@ -2803,7 +2447,7 @@ eof
       echo "   * Recovering sigma value data before merging" | tee -a $LOG
 
       #Take the reflection file with the sigma columns
-      mv $WORKDIR/${PDBID}_badsig.cif $WORKDIR/$PDBID.cif
+      mv $WORKDIR/${PDBID}_badsig.cif $WORKDIR/$PDBID.hkl.cif
 
       #Remake the mtz file
       goto mtzmaking
@@ -2916,7 +2560,7 @@ if (`mtzdmp $WORKDIR/merged.mtz -e | grep -A 2 'Column Types' | grep -c J` != 0)
   #Create a back-up
   cp $WORKDIR/merged.mtz $WORKDIR/mergedbu.mtz
 
-  if (`grep -c '_refln.pdbx_I_plus' $WORKDIR/$PDBID.cif` != 0) then
+  if (`grep -c '_refln.pdbx_I_plus' $WORKDIR/$PDBID.hkl.cif` != 0) then
     #Convert I to F, also for anomalous data. PROGRAM: ctruncate
     ctruncate \
     -mtzin  $WORKDIR/merged.mtz \
@@ -2941,16 +2585,16 @@ if (`mtzdmp $WORKDIR/merged.mtz -e | grep -A 2 'Column Types' | grep -c J` != 0)
     echo "   * Using cif2cif to convert intensities" | tee -a $LOG
 
     #Make backup
-    cp $WORKDIR/$PDBID.cif $WORKDIR/${PDBID}_notruncate.cif
+    cp $WORKDIR/$PDBID.hkl.cif $WORKDIR/${PDBID}_notruncate.cif
 
     #Run cif2cif
     $TOOLS/cif2cif -c $C2CANO $FEWREFS $INTENS $USTATUS $SIGMA \
     $WORKDIR/${PDBID}_notruncate.cif \
-    $WORKDIR/$PDBID.cif \
+    $WORKDIR/$PDBID.hkl.cif \
     >> $WORKDIR/mtz_creation.log
 
     #Check for the existence of a test set.    
-    set GOTR = `grep -c _refln.status $WORKDIR/$PDBID.cif`
+    set GOTR = `grep -c _refln.status $WORKDIR/$PDBID.hkl.cif`
     if ($GOTR == 0) then
       #Check the reason for the missing set
       if (`grep -c 'Warning: too small R-free set.' $WORKDIR/mtz_creation.log` != 0) then
@@ -2965,7 +2609,7 @@ if (`mtzdmp $WORKDIR/merged.mtz -e | grep -A 2 'Column Types' | grep -c J` != 0)
   endif
 
   #Rename amplitude columns and remove intensity columns
-  if (`grep -c '_refln.pdbx_I_plus' $WORKDIR/$PDBID.cif` != 0) then
+  if (`grep -c '_refln.pdbx_I_plus' $WORKDIR/$PDBID.hkl.cif` != 0) then
     set DELLABEL = 'DANO SIGDANO ISYM I(+) SIGI(+) I(-) SIGI(-)'
   else
     set DELLABEL = 'I SIGI'
@@ -3084,16 +2728,16 @@ if (`grep -c "ERR: NUMBER OF REFLS" sfcheck.log` != 0 && $UTRUNCATE == 1) then
   echo "   * Using cif2cif to convert intensities" | tee -a $LOG
 
   #Make backup
-  cp $WORKDIR/$PDBID.cif $WORKDIR/${PDBID}_notruncate.cif
+  cp $WORKDIR/$PDBID.hkl.cif $WORKDIR/${PDBID}_notruncate.cif
 
   #Run cif2cif
   $TOOLS/cif2cif -c $C2CANO $FEWREFS $INTENS $USTATUS $SIGMA \
   $WORKDIR/${PDBID}_notruncate.cif \
-  $WORKDIR/$PDBID.cif \
+  $WORKDIR/$PDBID.hkl.cif \
   >> $WORKDIR/mtz_creation.log
   
   #Check for the existence of a test set.    
-  set GOTR = `grep -c _refln.status $WORKDIR/$PDBID.cif`
+  set GOTR = `grep -c _refln.status $WORKDIR/$PDBID.hkl.cif`
   if ($GOTR == 0) then
     #Check the reason for the missing set
     if (`grep -c 'Warning: too small R-free set.' $WORKDIR/mtz_creation.log` != 0) then
@@ -3194,7 +2838,7 @@ eof
 endif
 
 #Check for anomalous data
-if (`grep -c '_refln.pdbx_F_plus' $WORKDIR/$PDBID.cif` != 0 || `grep -c '_refln.pdbx_I_plus' $WORKDIR/$PDBID.cif` != 0) then
+if (`grep -c '_refln.pdbx_F_plus' $WORKDIR/$PDBID.hkl.cif` != 0 || `grep -c '_refln.pdbx_I_plus' $WORKDIR/$PDBID.hkl.cif` != 0) then
   set ANOMCOEF = 'F+=F(+) SIGF+=SIGF(+) F-=F(-) SIGF-=SIGF(-)'
   set ANOMCMD  = 'ANOM maponly'
 endif
@@ -4307,14 +3951,15 @@ else
   endif
 endif
 
-#Copy back the SEQRES records
-if ($GOTSEQRES == 1 && `grep -c '^SEQRES' $WORKDIR/${PDBID}_0cyc.pdb` == 0) then
+# #Copy back the SEQRES records
+if (`grep -c '^SEQRES' $WORKDIR/${PDBID}_0cyc.pdb` == 0) then
   cp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_0cyc.bak
   #Run seqrescopier. PROGRAM: seqrescopier
   cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.seqrescopier.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
   
+  #!!!! Change to using cache.cif  
   $TOOLS/seqrescopier -v \
-  -pdbinw  $WORKDIR/cache.pdb \
+  -pdbinw  $WORKDIR/${PDBID}_prepped.pdb \
   -pdbinwo $WORKDIR/${PDBID}_0cyc.bak \
   -pdbout  $WORKDIR/${PDBID}_0cyc.pdb > $WORKDIR/seqrescopier.log 
 else
@@ -5009,11 +4654,11 @@ if ( ($RESOGAP == 1 || $FORCEPAIRED == 1) && $RESOCHECK == 1) then
   cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.binliner.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
   if ($RESOGAP == 1) then
     $TOOLS/binliner -v \
-    $WORKDIR/$PDBID.cif \
+    $WORKDIR/$PDBID.hkl.cif \
     $RESOLUTION $DATARESH > $WORKDIR/binliner.log
   else
     $TOOLS/binliner -v \
-    $WORKDIR/$PDBID.cif > $WORKDIR/binliner.log
+    $WORKDIR/$PDBID.hkl.cif > $WORKDIR/binliner.log
   endif  
   
   
@@ -6614,12 +6259,13 @@ echo "Expected R-free   : $RFTLSUNB" | tee -a $LOG
 echo "sigma(R-free)     : $SIGRFTLS" | tee -a $LOG
 echo "R-free Z-score    : $RFTLSZ"   | tee -a $LOG
 
-#Copy back the SEQRES records
-if ($GOTSEQRES == 1  && `grep -c '^SEQRES' $WORKDIR/${PDBID}_besttls.pdb` == 0) then
+# #Copy back the SEQRES records
+if (`grep -c '^SEQRES' $WORKDIR/${PDBID}_besttls.pdb` == 0) then
   cp $WORKDIR/${PDBID}_besttls.pdb $WORKDIR/${PDBID}_besttls.bak
   #Run seqrescopier. PROGRAM: seqrescopier
+  #!!!! Change to using cache.cif  
   $TOOLS/seqrescopier -v \
-  -pdbinw  $WORKDIR/cache.pdb \
+  -pdbinw  $WORKDIR/${PDBID}_prepped.pdb \
   -pdbinwo $WORKDIR/${PDBID}_besttls.bak \
   -pdbout  $WORKDIR/${PDBID}_besttls.pdb >> $WORKDIR/seqrescopier.log 
 else
@@ -7205,16 +6851,10 @@ else
   #Stop of no density-fitness file can be made
   if (! -e $WORKDIR/${PDBID}_besttls.json) then
     #Write error statement
-    echo " o Cannot calculate density fit. Cannot continue." | tee -a $LOG
-    echo "COMMENT: error in density-fitness" >> $WHYNOT
-    echo "PDB-REDO,$PDBID"         >> $WHYNOT
-    if ($SERVER == 1) then
-      #Write out status files
-      touch $STDIR/stoppingProcess.txt
-      touch $STDIR/processStopped.txt
-    endif   
-    
-    exit(1)
+    echo " o Cannot calculate density fit for loop building." | tee -a $LOG
+    echo "COMMENT: error in density-fitness" >> $DEBUG
+    echo "PDB-REDO,$PDBID"                   >> $DEBUG
+    set DOLOOPS = 0
   endif      
         
   #Deal with TLS if needed
@@ -7244,12 +6884,12 @@ else
     -pdbdir $REDODIR \
     $LTLSCMD \
     $HOMINCMD \
-    $NUMBERING >> $WORKDIR/loopwhole.log 
+    $NUMBERING >>& $WORKDIR/loopwhole.log 
     
     #Count and report the new loops
     set NLOOPS  = `grep 'Number of loops added' $WORKDIR/loopwhole.log | awk '{print $5}'`
     if ($NLOOPS == '') then
-      NLOOPS = 0
+      set NLOOPS = 0
     endif
 #    set NPLOOPS = `grep -c 'Loop is partly kept' $WORKDIR/loopwhole.log`
     
@@ -8174,7 +7814,7 @@ eof
   endif
 
   #Correct the total number of deleted waters
-  @ NWATDEL = (`grep '^[AH][TE][OT]' $WORKDIR/cache.pdb | grep -c HOH` - `grep '^[AH][TE][OT]' $WORKDIR/${PDBID}_built.pdb | grep -c HOH`)
+  @ NWATDEL = (`echo "SELECT label_atom_id FROM atom_site WHERE label_comp_id = 'HOH';" | /zata/tools/mmCQL $WORKDIR/cache.cif | grep -c O` - `grep '^[AH][TE][OT]' $WORKDIR/${PDBID}_built.pdb | grep -c HOH`)
   
   #Present a rebuilding summary.
   echo " " | tee -a $LOG
@@ -8232,7 +7872,7 @@ if ($DOSUGARBUILD == 1 && $GOT_PROT == 'T') then
     echo "   * Overlapping waters deleted   : " `grep 'waters deleted:'        $WORKDIR/carbivore.log | awk '{print $5}'` | tee -a $LOG
     
     #Correct number of deleted waters
-    @ NWATDEL = (`grep '^[AH][TE][OT]' $WORKDIR/pdb$PDBID.ent | grep -c HOH` - `grep '^[AH][TE][OT]' $WORKDIR/${PDBID}_built.pdb | grep -c HOH`)
+    @ NWATDEL = (`echo "SELECT label_atom_id FROM atom_site WHERE label_comp_id = 'HOH';" | /zata/tools/mmCQL $WORKDIR/cache.cif | grep -c O` - `grep '^[AH][TE][OT]' $WORKDIR/${PDBID}_built.pdb | grep -c HOH`)
   else
     #Report error
     echo " o Carbivore failed, no carbohydrates (rebuilt)" | tee -a $LOG
@@ -9068,11 +8708,12 @@ eof
 endif
 
 #Copy back the SEQRES records
-if ($GOTSEQRES == 1  && `grep -c '^SEQRES' $WORKDIR/${PDBID}_final.pdb` == 0) then
+if (`grep -c '^SEQRES' $WORKDIR/${PDBID}_final.pdb` == 0) then
   cp $WORKDIR/${PDBID}_final.pdb $WORKDIR/${PDBID}_final.bak
   #Run seqrescopier. PROGRAM: seqrescopier
+  #!!!! Change to using cache.cif  
   $TOOLS/seqrescopier -v \
-  -pdbinw  $WORKDIR/cache.pdb \
+  -pdbinw  $WORKDIR/${PDBID}_prepped.pdb \
   -pdbinwo $WORKDIR/${PDBID}_final.bak \
   -pdbout  $WORKDIR/${PDBID}_final.pdb >> $WORKDIR/seqrescopier.log 
 else
@@ -9693,9 +9334,10 @@ if (-e $WORKDIR/renumber.json) then
   set NUMBERING = "-renum $WORKDIR/renumber.json"
 endif
   
+#!!!! Change to using cache.cif  
 echo "-Analysing model changes" | tee -a $LOG
 $TOOLS/modelcompare -v \
--pdb1 $WORKDIR/cache.pdb \
+-pdb1 $WORKDIR/${PDBID}_prepped.pdb \
 -pdb2 $WORKDIR/${PDBID}_final.pdb \
 -output-name $PDBID \
 $NUMBERING \
@@ -10454,6 +10096,13 @@ endif
 
 #Set the version tags
 set VTAG = `sha256sum $WORKDIR/versions.json | cut -c 1-9`
+if ($LOCAL == 0 && $VTAG == e3b0c4429) then
+  #Create a WHY_NOT comment
+  echo "-Corrupted versions.json cannot make entry" | tee -a $LOG
+  echo "COMMENT: Versions.json corruption" >> $WHYNOT
+  echo "PDB-REDO,$PDBID"                   >> $WHYNOT
+  exit(1)
+endif
 
 #Make a new attic if it has a new version tag
 if (! -e $TOUTPUT/attic/$VTAG) then
