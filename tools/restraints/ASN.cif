@@ -1,4 +1,3 @@
-#
 data_comp_list
 loop_
 _chem_comp.id
@@ -8,70 +7,87 @@ _chem_comp.group
 _chem_comp.number_atoms_all
 _chem_comp.number_atoms_nh
 _chem_comp.desc_level
-ASN      ASN 'ASPARAGINE                          ' peptide          14   8 .
-#
+ASN ASN ASPARAGINE peptide 17 9 .
+
 data_comp_ASN
-#
 loop_
 _chem_comp_atom.comp_id
 _chem_comp_atom.atom_id
 _chem_comp_atom.type_symbol
 _chem_comp_atom.type_energy
-_chem_comp_atom.partial_charge
- ASN           N      N    NH1      -0.204
- ASN           H      H    HNH1      0.204
- ASN           CA     C    CH1       0.058
- ASN           HA     H    HCH1      0.046
- ASN           CB     C    CH2      -0.045
- ASN           HB3    H    HCH2      0.041
- ASN           HB2    H    HCH2      0.041
- ASN           CG     C    C         0.324
- ASN           OD1    O    O        -0.425
- ASN           ND2    N    NH2      -0.350
- ASN           HD21   H    HNH2      0.207
- ASN           HD22   H    HNH2      0.207
- ASN           C      C    C         0.318
- ASN           O      O    O        -0.422
+_chem_comp_atom.charge
+_chem_comp_atom.x
+_chem_comp_atom.y
+_chem_comp_atom.z
+ASN N N NT3 1 15.240 16.650 19.952
+ASN CA C CH1 0 15.824 17.959 20.384
+ASN C C C 0 14.902 18.617 21.419
+ASN O O O 0 15.300 18.861 22.558
+ASN CB C CH2 0 16.056 18.901 19.197
+ASN CG C C 0 17.016 18.357 18.157
+ASN OD1 O O 0 17.581 17.277 18.317
+ASN ND2 N NH2 0 17.210 19.102 17.079
+ASN OXT O OC -1 13.742 18.915 21.135
+ASN H H H 0 14.544 16.809 19.238
+ASN H2 H H 0 14.833 16.198 20.697
+ASN H3 H H 0 15.935 16.090 19.598
+ASN HA H H 0 16.698 17.785 20.808
+ASN HB3 H H 0 16.406 19.750 19.536
+ASN HB2 H H 0 15.195 19.081 18.768
+ASN HD21 H H 0 16.674 19.784 16.907
+ASN HD22 H H 0 17.876 18.917 16.527
+
 loop_
 _chem_comp_tree.comp_id
 _chem_comp_tree.atom_id
 _chem_comp_tree.atom_back
 _chem_comp_tree.atom_forward
 _chem_comp_tree.connect_type
- ASN      N      n/a    CA     START
- ASN      H      N      .      .
- ASN      CA     N      C      .
- ASN      HA     CA     .      .
- ASN      CB     CA     CG     .
- ASN      HB3    CB     .      .
- ASN      HB2    CB     .      .
- ASN      CG     CB     ND2    .
- ASN      OD1    CG     .      .
- ASN      ND2    CG     HD22   .
- ASN      HD21   ND2    .      .
- ASN      HD22   ND2    .      .
- ASN      C      CA     .      END
- ASN      O      C      .      .
+ASN N n/a CA START
+ASN H N . .
+ASN H2 N . .
+ASN H3 N . .
+ASN CA N C .
+ASN HA CA . .
+ASN CB CA CG .
+ASN HB3 CB . .
+ASN HB2 CB . .
+ASN CG CB ND2 .
+ASN OD1 CG . .
+ASN ND2 CG HD22 .
+ASN HD21 ND2 . .
+ASN HD22 ND2 . .
+ASN C CA . END
+ASN O C . .
+ASN OXT C . .
+
 loop_
 _chem_comp_bond.comp_id
 _chem_comp_bond.atom_id_1
 _chem_comp_bond.atom_id_2
 _chem_comp_bond.type
+_chem_comp_bond.aromatic
+_chem_comp_bond.value_dist_nucleus
+_chem_comp_bond.value_dist_nucleus_esd
 _chem_comp_bond.value_dist
 _chem_comp_bond.value_dist_esd
- ASN      N      H         single       0.860    0.020
- ASN      N      CA        single       1.458    0.019
- ASN      CA     HA        single       0.980    0.020
- ASN      CA     CB        single       1.530    0.020
- ASN      CB     HB3       single       0.970    0.020
- ASN      CB     HB2       single       0.970    0.020
- ASN      CB     CG        single       1.516    0.020
- ASN      CG     OD1       double       1.231    0.019
- ASN      CG     ND2       single       1.328    0.021
- ASN      ND2    HD21      single       0.980    0.020
- ASN      ND2    HD22      single       0.980    0.020
- ASN      CA     C         single       1.525    0.021
- ASN      C      O         deloc        1.231    0.020
+ASN N CA SINGLE n 1.459 0.0200 1.459 0.0200
+ASN CA C SINGLE n 1.525 0.0260 1.525 0.0260
+ASN CA CB SINGLE n 1.527 0.026 1.527 0.026
+ASN C O DOUBLE n 1.229 0.019 1.229 0.019
+ASN C OXT SINGLE n 1.229 0.019 1.229 0.019
+ASN CB CG SINGLE n 1.506 0.0230 1.506 0.0230
+ASN CG OD1 DOUBLE n 1.235 0.022 1.235 0.022
+ASN CG ND2 SINGLE n 1.324 0.0250 1.324 0.0250
+ASN N H SINGLE n 1.036 0.0160 0.911 0.0200
+ASN N H2 SINGLE n 1.036 0.0160 0.911 0.0200
+ASN N H3 SINGLE n 1.036 0.0160 0.911 0.0200
+ASN CA HA SINGLE n 1.089 0.0100 0.986 0.0200
+ASN CB HB3 SINGLE n 1.089 0.0100 0.979 0.0159
+ASN CB HB2 SINGLE n 1.089 0.0100 0.979 0.0159
+ASN ND2 HD21 SINGLE n 1.016 0.0100 0.884 0.0200
+ASN ND2 HD22 SINGLE n 1.016 0.0100 0.884 0.0200
+
 loop_
 _chem_comp_angle.comp_id
 _chem_comp_angle.atom_id_1
@@ -79,26 +95,34 @@ _chem_comp_angle.atom_id_2
 _chem_comp_angle.atom_id_3
 _chem_comp_angle.value_angle
 _chem_comp_angle.value_angle_esd
- ASN      H      N      CA      114.000    3.000
- ASN      HA     CA     CB      109.000    3.000
- ASN      CB     CA     C       110.100    1.900
- ASN      HA     CA     C       109.000    3.000
- ASN      N      CA     HA      110.000    3.000
- ASN      N      CA     CB      110.500    1.700
- ASN      HB3    CB     HB2     110.000    3.000
- ASN      HB2    CB     CG      108.000    3.000
- ASN      HB3    CB     CG      108.000    3.000
- ASN      CA     CB     HB3     109.000    3.000
- ASN      CA     CB     HB2     109.000    3.000
- ASN      CA     CB     CG      112.600    1.000
- ASN      OD1    CG     ND2     122.600    1.000
- ASN      CB     CG     OD1     120.800    2.000
- ASN      CB     CG     ND2     116.400    1.500
- ASN      HD21   ND2    HD22    120.000    3.000
- ASN      CG     ND2    HD21    120.000    3.000
- ASN      CG     ND2    HD22    120.000    3.000
- ASN      N      CA     C       112.200    2.800
- ASN      CA     C      O       120.800    1.700
+ASN CA N H 110.062 1.93
+ASN CA N H2 110.062 1.93
+ASN CA N H3 110.062 1.93
+ASN H N H2 109.028 2.41
+ASN H N H3 109.028 2.41
+ASN H2 N H3 109.028 2.41
+ASN N CA C 111.0 2.70
+ASN N CA CB 110.6 1.80
+ASN N CA HA 108.487 1.50
+ASN C CA CB 110.40 2.00
+ASN C CA HA 108.824 1.50
+ASN CB CA HA 107.983 1.50
+ASN CA C O 120.1 2.10
+ASN CA C OXT 120.1 2.10
+ASN O C OXT 119.8 1.50
+ASN CA CB CG 113.4 2.20
+ASN CA CB HB3 108.904 1.50
+ASN CA CB HB2 108.904 1.50
+ASN CG CB HB3 109.076 1.50
+ASN CG CB HB2 109.076 1.50
+ASN HB3 CB HB2 108.069 1.50
+ASN CB CG OD1 121.6 2.0
+ASN CB CG ND2 116.7 2.40
+ASN OD1 CG ND2 121.9 2.30
+ASN CG ND2 HD21 120.022 1.65
+ASN CG ND2 HD22 120.022 1.65
+ASN HD21 ND2 HD22 119.956 2.38
+
 loop_
 _chem_comp_tor.comp_id
 _chem_comp_tor.id
@@ -109,9 +133,12 @@ _chem_comp_tor.atom_id_4
 _chem_comp_tor.value_angle
 _chem_comp_tor.value_angle_esd
 _chem_comp_tor.period
- ASN      chi1     N      CA     CB     CG       180.000   15.000   3
- ASN      chi2     CA     CB     CG     ND2        0.000   30.000   2
- ASN      hh1      CB     CG     ND2    HD22       0.000   30.000   2
+ASN chi1 N CA CB CG -60.000 10.0 3
+ASN chi2 CA CB CG ND2 180.000 10.0 6
+ASN hh1 CB CG ND2 HD22 180.000 10.0 2
+ASN sp3_sp3_1 C CA N H 180.000 10.0 3
+ASN sp2_sp3_1 O C CA N 0.000 10.0 6
+
 loop_
 _chem_comp_chir.comp_id
 _chem_comp_chir.id
@@ -120,17 +147,46 @@ _chem_comp_chir.atom_id_1
 _chem_comp_chir.atom_id_2
 _chem_comp_chir.atom_id_3
 _chem_comp_chir.volume_sign
- ASN      chir_01  CA     N      CB     C         negativ
+ASN chir_1 CA N C CB positive
+
 loop_
 _chem_comp_plane_atom.comp_id
 _chem_comp_plane_atom.plane_id
 _chem_comp_plane_atom.atom_id
 _chem_comp_plane_atom.dist_esd
- ASN      plan1     CG        0.020
- ASN      plan1     CB        0.020
- ASN      plan1     OD1       0.020
- ASN      plan1     ND2       0.020
- ASN      plan2     CG        0.020
- ASN      plan2     ND2       0.020
- ASN      plan2     HD21      0.020
- ASN      plan2     HD22      0.020
+ASN plan-1 C 0.020
+ASN plan-1 CA 0.020
+ASN plan-1 O 0.020
+ASN plan-1 OXT 0.020
+ASN plan-2 CB 0.020
+ASN plan-2 CG 0.020
+ASN plan-2 ND2 0.020
+ASN plan-2 OD1 0.020
+ASN plan-3 CG 0.020
+ASN plan-3 HD21 0.020
+ASN plan-3 HD22 0.020
+ASN plan-3 ND2 0.020
+
+loop_
+_pdbx_chem_comp_descriptor.comp_id
+_pdbx_chem_comp_descriptor.type
+_pdbx_chem_comp_descriptor.program
+_pdbx_chem_comp_descriptor.program_version
+_pdbx_chem_comp_descriptor.descriptor
+ASN SMILES ACDLabs 12.01 O=C(N)CC(N)C(=O)O
+ASN InChI InChI 1.03 InChI=1S/C4H8N2O3/c5-2(4(8)9)1-3(6)7/h2H,1,5H2,(H2,6,7)(H,8,9)/t2-/m0/s1
+ASN InChIKey InChI 1.03 DCXYFEDJOCDNAF-REOHCLBHSA-N
+ASN SMILES_CANONICAL CACTVS 3.370 N[C@@H](CC(N)=O)C(O)=O
+ASN SMILES CACTVS 3.370 N[CH](CC(N)=O)C(O)=O
+ASN SMILES_CANONICAL "OpenEye OEToolkits" 1.7.2 C([C@@H](C(=O)O)N)C(=O)N
+ASN SMILES "OpenEye OEToolkits" 1.7.2 C(C(C(=O)O)N)C(=O)N
+
+loop_
+_pdbx_chem_comp_description_generator.comp_id
+_pdbx_chem_comp_description_generator.program_name
+_pdbx_chem_comp_description_generator.program_version
+_pdbx_chem_comp_description_generator.descriptor
+ASN acedrg 243 "dictionary generator"
+ASN acedrg_database 11 "data source"
+ASN rdkit 2017.03.2 "Chemoinformatics tool"
+ASN refmac5 5.8.0238 "optimization tool"
