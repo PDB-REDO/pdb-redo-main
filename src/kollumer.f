@@ -1,6 +1,6 @@
       PROGRAM KOLLUMER
 C======================================================================C
-C  Version 1.16 2018-03-07
+C  Version 2.00 2022-07-11
 C  Assigns column labels for mtz2various based on an mtzdmp log file.
 C
 C  Usage: kollumer (-v) LOG_IN
@@ -43,6 +43,9 @@ C    Perrakis: "PDB_REDO: constructive validation, more than just
 C    looking for errors" Acta Cryst. D68, p. 484-496 (2012)
 C
 C  Changelog
+C  Version 2.00:
+C  - If available, phase columns are now written out.
+C
 C  Version 1.16:
 C  - Anomalous intensities are now only written if there are sigma data
 C
@@ -109,7 +112,7 @@ C======================================================================C
 C-----Declare basic variables and parameters
       INTEGER   MAXDAT, MAXLAB, I, J, K, STATUS, ARGS
       CHARACTER VERS*4
-      PARAMETER (VERS='1.16')
+      PARAMETER (VERS='2.00J')
 C-----MAXDAT is the maximum allowed lines in the log file
       PARAMETER (MAXDAT=2000)
 C-----MAXLAB is the maximum allowed different labels
@@ -118,17 +121,18 @@ C-----MAXLAB is the maximum allowed different labels
 C-----Declare the variables and parameters
       CHARACTER LINE*150, INLOG*255, OUTLAB*500, C2JUNK*2
       INTEGER   EXTRA, NLABEL, LENSTR, LABLEN, BESTFJ, BESTQ, BESTI, 
+     +          BESTA, BESTP,  
      +          IDF, IDJ, IDKP, IDKM, IDGP, IDGM, IDI, ID, IDMP, IDMM,
-     +          IDLP, IDLM
+     +          IDLP, IDLM, IDA, IDP
 C-----IDF is the number of the most likely amplitude column label
       LOGICAL   VERBOS, GTDATA
 
 C-----Declare arrays
       CHARACTER LABEL(MAXLAB)*30, ULABEL(MAXLAB)*30, CTYPE(MAXLAB)*1
       REAL      COMPL(MAXLAB)   , RESHI(MAXLAB), RESLO(MAXLAB)
-      INTEGER   NTYPE(8)  
+      INTEGER   NTYPE(10)  
 C-----NTYPE is the number of labels of a certain type 
-C           in the order FJQIKMGL
+C           in the order FJQIKMGLPA
 
 C========================End of declarations===========================C
 C
@@ -175,6 +179,8 @@ C-----Initialise values
       NTYPE(6)= 0
       NTYPE(7)= 0
       NTYPE(8)= 0
+      NTYPE(9)= 0
+      NTYPE(10)= 0
       IDF     = 0
       IDJ     = 0
       IDI     = 0
@@ -225,8 +231,9 @@ C         Read the Table
               GO TO 110
             ELSE IF (LINE(1:8).EQ.' No. of ') THEN
 C             End of the table
-              GO TO 150
-            ELSE IF (INDEX('FJQIKMGL',LINE(74:74)).NE.0) THEN
+              GO TO 150   
+            ELSE IF (INDEX('FJQIKMGLAP',LINE(74:74)).NE.0) THEN
+C             This is a supported data column type 
               NLABEL = NLABEL+1
               READ(UNIT=LINE, FMT=979,ERR=105,END=110) COMPL(NLABEL),
      +        RESLO(NLABEL), RESHI(NLABEL),CTYPE(NLABEL),LABEL(NLABEL)
@@ -272,6 +279,10 @@ C-----Count the types
           NTYPE(7) = NTYPE(7) + 1
         ELSE IF(CTYPE(I).EQ.'L') THEN
           NTYPE(8) = NTYPE(8) + 1
+        ELSE IF(CTYPE(I).EQ.'P') THEN
+          NTYPE(9) = NTYPE(9) + 1   
+        ELSE IF(CTYPE(I).EQ.'A') THEN
+          NTYPE(10)= NTYPE(10) + 1             
         ELSE
           GO TO 997       
         END IF
@@ -285,6 +296,8 @@ C-----Count the types
         WRITE(6,*)'Anomalous sigma I columns  :', NTYPE(6)
         WRITE(6,*)'Anomalous sigma F columns  :', NTYPE(8)
         WRITE(6,*)'R-free columns             :', NTYPE(4)
+        WRITE(6,*)'Phase columns (phi)        :', NTYPE(9)
+        WRITE(6,*)'Phase columns (HL coefs)   :', NTYPE(10)      
       END IF
 
 C-----Check to see whether there is any useful data
@@ -422,10 +435,34 @@ C-----Free columns
 230   IF (NTYPE(4).GT.0) THEN 
 C       Select the best R-free column
         IDI = BESTI(ULABEL, CTYPE, COMPL, NLABEL)
-        IF (IDI.EQ.0) GO TO 996
+        IF (IDI.EQ.0) GO TO 235
         OUTLAB = OUTLAB(1:LABLEN)//' FREE='//LABEL(IDI)
         LABLEN = LENSTR(OUTLAB)
       END IF
+      
+C-----Phase columns (prefer Hendrickson-Lattman format
+235   IF (NTYPE(10).GE.4) THEN
+C       Get the right HL columns
+        IDA = BESTA(ULABEL, CTYPE, COMPL, NLABEL,'A')
+        OUTLAB = OUTLAB(1:LABLEN)//' HLA='//LABEL(IDA)
+        LABLEN = LENSTR(OUTLAB)
+        IDA = BESTA(ULABEL, CTYPE, COMPL, NLABEL,'B')
+        OUTLAB = OUTLAB(1:LABLEN)//' HLB='//LABEL(IDA)
+        LABLEN = LENSTR(OUTLAB)
+        IDA = BESTA(ULABEL, CTYPE, COMPL, NLABEL,'C')
+        OUTLAB = OUTLAB(1:LABLEN)//' HLC='//LABEL(IDA)
+        LABLEN = LENSTR(OUTLAB)
+        IDA = BESTA(ULABEL, CTYPE, COMPL, NLABEL,'D')
+        OUTLAB = OUTLAB(1:LABLEN)//' HLD='//LABEL(IDA)
+        LABLEN = LENSTR(OUTLAB)
+      ELSE IF (NTYPE(9).GE.1) THEN
+C       Use the regular phase instead   
+        IDP = BESTP(ULABEL, CTYPE, COMPL, NLABEL)
+        IF (IDP.GT.0) THEN
+          OUTLAB = OUTLAB(1:LABLEN)//' PHIB='//LABEL(IDP)
+          LABLEN = LENSTR(OUTLAB)
+        ENDIF  
+      ENDIF
 
 C-----Write final label assignment
       IF (GTDATA) THEN
@@ -666,6 +703,82 @@ C         Look for a 'free' flag
       RETURN
       END
 
+C-----------------------------------------------------------------------
+C  This function returns the number of the most likely HL coef column
+C-----------------------------------------------------------------------
+      INTEGER FUNCTION BESTA(ULABEL,CTYPE,COMPL,NLABEL,COEF)
+      IMPLICIT NONE
+      INTEGER   I,NLABEL, BCOL
+      REAL      BHRES, BLRES, BCOMPL
+      CHARACTER COEF*1
+      CHARACTER ULABEL(NLABEL)*30, CTYPE(NLABEL)*1
+      REAL      COMPL(NLABEL) 
+C---------------------------------------------------------------
+ 
+      BCOMPL = 0.00
+C-----Initialise
+      BESTA  = 0
+      BCOL   = 0
+
+      DO 10 I=1,NLABEL
+C       Make sure the column is of the right type
+        IF (CTYPE(I).EQ.'A') THEN
+C         Look for a 'free' flag
+          IF (INDEX(ULABEL(I),'HL'//COEF).NE.0) THEN
+            BCOL = I
+            GO TO 20 
+          ELSE 
+            IF (COMPL(I).GT.BCOMPL) THEN
+              BCOMPL = COMPL(I)
+              BCOL   = I 
+            END IF 
+          END IF
+        END IF
+   10 CONTINUE
+   20 BESTA = BCOL
+      RETURN
+      END 
+      
+C-----------------------------------------------------------------------
+C  This function returns the number of the most likely phase column
+C-----------------------------------------------------------------------
+      INTEGER FUNCTION BESTP(ULABEL,CTYPE,COMPL,NLABEL)
+      IMPLICIT NONE
+      INTEGER   I,NLABEL, BCOL
+      REAL      BHRES, BLRES, BCOMPL
+      CHARACTER ULABEL(NLABEL)*30, CTYPE(NLABEL)*1
+      REAL      COMPL(NLABEL) 
+C---------------------------------------------------------------
+ 
+      BCOMPL = 0.00
+C-----Initialise
+      BESTP  = 0
+      BCOL   = 0
+
+      DO 10 I=1,NLABEL
+C       Make sure the column is of the right type
+        IF (CTYPE(I).EQ.'P') THEN
+C         Look for a 'free' flag
+          IF (INDEX(ULABEL(I),'PHIF').NE.0) THEN
+            BCOL = I
+            GO TO 20 
+          ELSE IF ((ULABEL(I)(1:4).EQ.'PHIC').OR.
+     +             (ULABEL(I)(1:4).EQ.'PHWT').OR.
+     +             (ULABEL(I)(1:7).EQ.'PHDELWT')) THEN
+C           This is a phase calc column, skip  
+            GO TO 10
+          ELSE 
+            IF (COMPL(I).GT.BCOMPL) THEN
+              BCOMPL = COMPL(I)
+              BCOL   = I 
+            END IF 
+          END IF
+        END IF
+   10 CONTINUE
+   20 BESTP = BCOL
+      RETURN
+      END       
+      
 C-----------------------------------------------------------------------
 C  This subroutine converts strings to uppercase
 C-----------------------------------------------------------------------
