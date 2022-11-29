@@ -144,12 +144,13 @@ set VERSION = '8.00' #PDB-REDO version
 # - Operations now start from an mmCIF-formatted coordinate file rather than a PDB-formatted file. PDB input files are 
 #   converted. 
 # - Major rewrite on input file checks; these now use cif-grep and mmCQL.
-# - Added check for space group consitency between model and reflection data.
+# - Added check for space group consistency between model and reflection data.
 # - Removed check for SPLIT records as they are now extinct.
 # - Removed check for SIGATM and SIGUIJ records as they are no problem in mmCIF files.
 # - Slight redesign of ASCII art logo.
 # - Removed --pdbin argument. --xyzin should be used instead.
 # - Changed protein restraints to EH99/IT2006 with modifications for ARG.
+# - Added temporary(?) contingency to allow PDB conversion.
 #
 # Version 7.38:
 # - A compressed FAIRness copy is added which allows the use of permament identifiers.
@@ -523,6 +524,7 @@ set OXTADD       =              #Add OXT atoms by default
 set TRUSTSEQ     = 0            #Trust the sequence by default
 set SFTYPE       =              #Set scattering type for density-fitness (Default: X-ray) 
 set DIDMR        = 0            #No molecular replacement was done 
+set PREPPERRETRY = 0            #Number of prepper retries
 
 #Error flags
 set TTEST      = 0 #No errors in the TLS group optimisation
@@ -1107,6 +1109,7 @@ endif
 if ($NOPDB == 1 || $NOSF == 1) then
   cd $WORKDIR   #Go to workdir
   #Remove some files
+  rm $WORKDIR/*_platonyzed.* >& /dev/null
   rm $WORKDIR/*.tls >& /dev/null
   rm -rf $WORKDIR/download >& /dev/null
   rm $WORKDIR/*.rest >& /dev/null
@@ -1145,7 +1148,6 @@ if ($DOWNLOAD == 1) then
   cd $WORKDIR/download
 
   #Download the stuff (reflection data)
-  #$WEBGET ftp://ftp.wwpdb.org/pub/pdb/data/structures/all/structure_factors/r${PDBID}sf.ent.gz
   $WEBGET https://www.ebi.ac.uk/pdbe/entry-files/download/r${PDBID}sf.ent
   if($status) then
     echo " o Cannot download experimental data file" | tee -a $LOG
@@ -1156,7 +1158,6 @@ if ($DOWNLOAD == 1) then
   setenv SF $WORKDIR/download
 
   #Download the stuff (model)
-  #$WEBGET ftp://ftp.wwpdb.org/pub/pdb/data/structures/all/pdb/pdb${PDBID}.ent.gz
   $WEBGET https://www.ebi.ac.uk/pdbe/entry-files/download/$PDBID.cif
   if($status) then
     echo " o Cannot download coordinate file" | tee -a $LOG
@@ -1549,23 +1550,22 @@ endif
 
 #Check the cell dimensions. Make dimensions consistent between model and data (a small amount is added to avoid rounding errors).
 #Get model cell dimensions and space group from coordinate file
-set MAAXIS = `$TOOLS/cif-grep -i _cell.angle_alpha . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.3f\n", $1 + 0.000001}'`
-set MBAXIS = `$TOOLS/cif-grep -i _cell.angle_beta  . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.3f\n", $1 + 0.000001}'`
-set MCAXIS = `$TOOLS/cif-grep -i _cell.angle_gamma . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.3f\n", $1 + 0.000001}'`
-set MALPHA = `$TOOLS/cif-grep -i _cell.length_a . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.2f\n", $1 + 0.000001}'`
-set MBETA  = `$TOOLS/cif-grep -i _cell.length_b . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.2f\n", $1 + 0.000001}'`
-set MGAMMA = `$TOOLS/cif-grep -i _cell.length_c . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.2f\n", $1 + 0.000001}'`
+set MALPHA = `$TOOLS/cif-grep -i _cell.angle_alpha . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.3f\n", $1 + 0.000001}'`
+set MBETA  = `$TOOLS/cif-grep -i _cell.angle_beta  . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.3f\n", $1 + 0.000001}'`
+set MGAMMA = `$TOOLS/cif-grep -i _cell.angle_gamma . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.3f\n", $1 + 0.000001}'`
+set MAAXIS  = `$TOOLS/cif-grep -i _cell.length_a . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.2f\n", $1 + 0.000001}'`
+set MBAXIS = `$TOOLS/cif-grep -i _cell.length_b . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.2f\n", $1 + 0.000001}'`
+set MCAXIS = `$TOOLS/cif-grep -i _cell.length_c . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.2f\n", $1 + 0.000001}'`
 set MSPACE = `$TOOLS/cif-grep -i _symmetry.space_group_name_H-M . $WORKDIR/$PDBID.xyz.cif | sed "s/P 21 21 2 A/P 21 21 2 (a)/g" | sed "s/P 1- /P -1/g"`
 
 #Read the cell dimensions for validation
-set RAAXIS = `$TOOLS/cif-grep -i _cell.angle_alpha . $WORKDIR/r${PDBID}sf.ent | awk '{printf "%.3f\n", $1 + 0.000001}'`
-set RBAXIS = `$TOOLS/cif-grep -i _cell.angle_beta  . $WORKDIR/r${PDBID}sf.ent | awk '{printf "%.3f\n", $1 + 0.000001}'`
-set RCAXIS = `$TOOLS/cif-grep -i _cell.angle_gamma . $WORKDIR/r${PDBID}sf.ent | awk '{printf "%.3f\n", $1 + 0.000001}'`
-set RALPHA = `$TOOLS/cif-grep -i _cell.length_a . $WORKDIR/r${PDBID}sf.ent | awk '{printf "%.2f\n", $1 + 0.000001}'`
-set RBETA  = `$TOOLS/cif-grep -i _cell.length_b . $WORKDIR/r${PDBID}sf.ent | awk '{printf "%.2f\n", $1 + 0.000001}'`
-set RGAMMA = `$TOOLS/cif-grep -i _cell.length_c . $WORKDIR/r${PDBID}sf.ent | awk '{printf "%.2f\n", $1 + 0.000001}'`
-set RSPACE = `$TOOLS/cif-grep -i _symmetry.space_group_name_H-M . $WORKDIR/r${PDBID}sf.ent | sed "s/P 21 21 2 A/P 21 21 2 (a)/g" | sed "s/P 1- /P -1/g"`
-
+set RALPHA = `$TOOLS/cif-grep -i _cell.angle_alpha . $WORKDIR/r${PDBID}sf.ent | head -n 1 | awk '{printf "%.3f\n", $1 + 0.000001}'`
+set RBETA  = `$TOOLS/cif-grep -i _cell.angle_beta  . $WORKDIR/r${PDBID}sf.ent | head -n 1 | awk '{printf "%.3f\n", $1 + 0.000001}'`
+set RGAMMA = `$TOOLS/cif-grep -i _cell.angle_gamma . $WORKDIR/r${PDBID}sf.ent | head -n 1 | awk '{printf "%.3f\n", $1 + 0.000001}'`
+set RAAXIS = `$TOOLS/cif-grep -i _cell.length_a . $WORKDIR/r${PDBID}sf.ent | head -n 1 | awk '{printf "%.2f\n", $1 + 0.000001}'`
+set RBAXIS = `$TOOLS/cif-grep -i _cell.length_b . $WORKDIR/r${PDBID}sf.ent | head -n 1 | awk '{printf "%.2f\n", $1 + 0.000001}'`
+set RCAXIS = `$TOOLS/cif-grep -i _cell.length_c . $WORKDIR/r${PDBID}sf.ent | head -n 1 | awk '{printf "%.2f\n", $1 + 0.000001}'`
+set RSPACE = `$TOOLS/cif-grep -i _symmetry.space_group_name_H-M . $WORKDIR/r${PDBID}sf.ent | head -n 1 | sed "s/P 21 21 2 A/P 21 21 2 (a)/g" | sed "s/P 1- /P -1/g"`
 
 #Check whether the space groups match
 if ("$MSPACE" != "$RSPACE") then
@@ -1612,7 +1612,7 @@ mmcqlrun:
   echo "-Running mmCQL" | tee -a $LOG
   #Reset the cell dimensions
   
-  $TOOLS/mmCQL -v --force \
+  $TOOLS/mmCQL -V --force \
   $WORKDIR/$PDBID.xyz.cif \
   $WORKDIR/${PDBID}_cell.cif \
   <<eof >& $WORKDIR/mmCQL.log
@@ -1652,7 +1652,11 @@ endif
 if ($LOCAL == 0) then
   #Get the version of the reflection data
   set RREVIS = `$TOOLS/cif-grep -i '_audit.revision_id' '.' $WORKDIR/r${PDBID}sf.ent | sort -n | tail -n 1`
-
+  if ($RREVIS == "") then
+    echo "-Reflection data lacks a revision number. Assuming it is the first release."
+    set RREVIS = "1_0"
+  endif
+    
   #Assign version
   cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq --arg rrevis $RREVIS '.data.reflections_revision |= $rrevis' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
   
@@ -1701,7 +1705,7 @@ echo " o Performing DEFY flips" | tee -a $LOG
 $TOOLS/flipper -v \
 $WORKDIR/${PDBID}_cell.cif \
 $DICTCMD \
--o $WORKDIR/${PDBID}_flipper.cif >& $WORKDIR/flipper.log
+$WORKDIR/${PDBID}_flipper.cif >& $WORKDIR/flipper.log
 
 #Contingency for flipper failure
 if (! -e $WORKDIR/${PDBID}_flipper.cif) then
@@ -1719,7 +1723,7 @@ echo "   * Running carbonanza"   | tee -a $LOG
 $TOOLS/carbonanza -v \
 $WORKDIR/${PDBID}_flipper.cif \
 $DICTCMD \
--o $WORKDIR/${PDBID}_carbonanza.cif  >& $WORKDIR/carbonanza.log
+$WORKDIR/${PDBID}_carbonanza.cif  >& $WORKDIR/carbonanza.log
 
 #Do we have a new model; then copy the new model
 if (-e $WORKDIR/${PDBID}_carbonanza.cif) then
@@ -1742,7 +1746,7 @@ if ($DOMETALREST == 1) then
   echo " o Running Platonyzer" | tee -a $LOG
   $TOOLS/platonyzer -v \
   $WORKDIR/${PDBID}_carbonanza.cif \
-  -o $WORKDIR/${PDBID}_platonyzed.cif \
+  $WORKDIR/${PDBID}_platonyzed.cif \
   --delete-vdw-rest \
   >& $WORKDIR/platonyzer.log
   
@@ -1753,7 +1757,8 @@ if ($DOMETALREST == 1) then
       mv ${PDBID}_platonyzed.restraints $WORKDIR/metal.rest
       set METALCMD = "@$WORKDIR/metal.rest"
     endif
-  else  
+  else 
+    exit(1)	  
     cp $WORKDIR/${PDBID}_carbonanza.cif $WORKDIR/${PDBID}_platonyzed.cif
   endif
 else  
@@ -1768,10 +1773,9 @@ echo " o Running prepper" | tee -a $LOG
 #the refmac library, and superfluous carbohydrate oxygen atoms. Also remove crazy LINKs. PROGRAM: prepper
 $TOOLS/prepper \
 $WORKDIR/${PDBID}_platonyzed.cif \
--o $WORKDIR/${PDBID}_prepped.pdb \
--v $SMODE \
+$WORKDIR/${PDBID}_prepped.pdb \
+$SMODE \
 --pdb-redo-data $TOOLS/pdb-redo-data.cif \
---debug 3 \
 $DICTCMD \
 >& $WORKDIR/prepper.log
 
@@ -1843,6 +1847,68 @@ if (! -e $WORKDIR/${PDBID}_prepped.pdb || -z $WORKDIR/${PDBID}_prepped.pdb) then
     endif   
     exit(1)
   endif    
+endif
+
+#Check for ATOM records
+if (`grep -c '^ATOM' $WORKDIR/${PDBID}_prepped.pdb` == 0) then
+  #Try again once if the problem is caused by auth_asym_id
+  if ($PREPPERRETRY == 0) then
+    set PREPPERRETRY = 1
+    echo "   * Problem with prepper output, trying to compensate." | tee -a $LOG	
+
+    #See if we can modifify the model to be set to PDB format
+    set NASYM = `$TOOLS/cif-grep -i '_atom_site.auth_asym_id' '.' $COORD/$D2/${PDBID}.cif.gz | sort -u | wc -l`
+    set NATOM = `$TOOLS/cif-grep -c -i '_atom_site.auth_asym_id' '.' $COORD/$D2/${PDBID}.cif.gz`
+    if ($NASYM < 63 && $NATOM < 100000) then  #Only 62 possible chainIDs and 99999 atoms in PDB format
+      echo "   * Renaming chains" | tee -a $LOG
+      #Construct command for mmCQL
+      set MMCQLCMD = 
+      set IASYM = 0
+      #Loop over all single character chains and remove them as renaming options
+      set POSSIBLE = $ALFNUM
+      foreach ASYM (`$TOOLS/cif-grep -i '_atom_site.auth_asym_id' '.' $COORD/$D2/${PDBID}.cif.gz | sort -u | grep '^.$'`)
+        set POSSIBLE = `echo $POSSIBLE | tr -d "$ASYM"`
+      end
+
+      #Rename all chains except the ones that already have a single character
+      foreach ASYM (`$TOOLS/cif-grep -i '_atom_site.auth_asym_id' '.' $COORD/$D2/${PDBID}.cif.gz | sort -u | grep '..'`)
+        @ IASYM = ($IASYM + 1)
+        set CHAIN = `echo $POSSIBLE | cut -c $IASYM-$IASYM`
+        set MMCQLCMD = "$MMCQLCMD UPDATE pdbx_poly_seq_scheme SET pdb_strand_id = '$CHAIN' WHERE pdb_strand_id = '$ASYM'; UPDATE atom_site SET auth_asym_id = '$CHAIN' WHERE auth_asym_id = '$ASYM'; "
+      end
+
+      #Run mmCQL
+      cp $WORKDIR/${PDBID}_platonyzed.cif $WORKDIR/${PDBID}_platonyzed_bak.cif
+      $TOOLS/mmCQL -V --force \
+      $WORKDIR/${PDBID}_platonyzed_bak.cif \
+      $WORKDIR/${PDBID}_platonyzed.cif \
+      <<eof >& $WORKDIR/mmCQL_chains.log
+      $MMCQLCMD
+eof
+  
+      #Rerun prepper
+      goto prepperrun
+    endif
+  endif
+  
+  #Give up
+  echo "COMMENT: prepper: cannot cast model to PDB format" >> $WHYNOT
+  echo "PDB-REDO,$PDBID"                                   >> $WHYNOT
+  #Give detailed help message
+  if ($LOCAL == 1) then
+    echo " " | tee -a $LOG
+    echo "FATAL ERROR!" | tee -a $LOG
+    echo "------------" | tee -a $LOG
+    echo "Your input model cannot be cast to PDB format." | tee -a $LOG
+    if ($SERVER == 1) then
+      #Write out status files
+      touch $STDIR/stoppingProcess.txt
+      touch $STDIR/processStopped.txt
+    endif
+  else  
+    echo "   * The input model cannot be cast to PDB format. Exit." | tee -a $LOG	
+  endif  
+  exit(1)
 endif
   
 #Report changes
@@ -6278,7 +6344,7 @@ endif
 #Delete files...
 
 #General
-rm $WORKDIR/mtz_creation.log
+#rm $WORKDIR/mtz_creation.log
 rm $WORKDIR/raw.mtz
 rm $WORKDIR/unique.mtz
 rm $WORKDIR/merged.mtz
@@ -6414,9 +6480,9 @@ end
 
 #Run tortoize
 echo "-Validating the input model with tortoize" | tee -a $LOG
-$TOOLS/tortoize --xyzin $WORKDIR/${PDBID}_0cyc.pdb --output $WORKDIR/${PDBID}_0cyc_tortoize.json >& $WORKDIR/tortoize.log
+$TOOLS/tortoize $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_0cyc_tortoize.json >& $WORKDIR/tortoize.log
 echo "-Validating the rerefined model with tortoize" | tee -a $LOG
-$TOOLS/tortoize --xyzin $WORKDIR/${PDBID}_besttls.pdb --output $WORKDIR/${PDBID}_besttls_tortoize.json >>& $WORKDIR/tortoize.log
+$TOOLS/tortoize $WORKDIR/${PDBID}_besttls.pdb $WORKDIR/${PDBID}_besttls_tortoize.json >>& $WORKDIR/tortoize.log
 
 #Extract statistics from original structure model
 set PDBOUT = $WORKDIR/wo/pdbout.txt
@@ -8088,14 +8154,14 @@ eof
           $SFTYPE \
           --recalc \
           --xyzin $WORKDIR/newlig_refi.pdb \
-          -o $WORKDIR/density_$RESNUM.txt \
+          -o $WORKDIR/density_$RESNUM.eds \
           $DICTCMDDF >>& $WORKDIR/density_ligfit.log 
         
           #Save the scores
-          grep "${CHID}_${RESNUM}[[:space:]]" $WORKDIR/density_$RESNUM.txt >> $WORKDIR/ligfit.scores         
+          grep "${CHID}_${RESNUM}[[:space:]]" $WORKDIR/density_$RESNUM.eds >> $WORKDIR/ligfit.scores         
 
           #Decide whether to keep the ligand (remove ligands with too low correlation, too low RSCC, too low EDIAm, or too high RSR)
-          if (`grep -A 40 'Residue Correlation Table:' $WORKDIR/ligref.log | grep $LIG | grep -e "$RESNUM" | awk '{if ($4 < 0.53) {print "reject"} else {print "accept"}}'` == "accept" && `grep "${CHID}_${RESNUM}[[:space:]]" $WORKDIR/density_$RESNUM.txt | awk '{if ($2 < 0.21 && (($4 > 0.76 && $6 > 0.50) || ($4 + $6 > 1.1) || ($2 < 0.185 && ($4 + $6 > 1.0)))) {print 1} else {print 0}}'` == 1) then
+          if (`grep -A 40 'Residue Correlation Table:' $WORKDIR/ligref.log | grep $LIG | grep -e "$RESNUM" | awk '{if ($4 < 0.53) {print "reject"} else {print "accept"}}'` == "accept" && `grep "${CHID}_${RESNUM}[[:space:]]" $WORKDIR/density_$RESNUM.eds | awk '{if ($2 < 0.21 && (($4 > 0.76 && $6 > 0.50) || ($4 + $6 > 1.1) || ($2 < 0.185 && ($4 + $6 > 1.0)))) {print 1} else {print 0}}'` == 1) then
                 
             #keep the new ligand
             set BUILT = 1
@@ -8318,7 +8384,7 @@ else
 
     $TOOLS/platonyzer -v \
     $WORKDIR/${PDBID}_built.pdb \
-    -o $WORKDIR/${PDBID}_built_platonyzed.pdb \
+    $WORKDIR/${PDBID}_built_platonyzed.pdb \
     --delete-vdw-rest \
     >>& $WORKDIR/platonyzer.log
 
@@ -8468,6 +8534,7 @@ bltrunning:
         $TORSION
         $OCCCMD
         $HARMCMD
+        external UndefinedAtoms ignore
         $METALCMD
         $NUCRCMD
         $RESTCMD
@@ -8726,7 +8793,7 @@ grep -v '^TER' $WORKDIR/${PDBID}_final.pdb | grep -v -E '^LINKR.{67}gap' > $WORK
 $TOOLS/flipper -v \
 $WORKDIR/${PDBID}_final.bak \
 $DICTCMD \
--o $WORKDIR/${PDBID}_final.pdb >>& $WORKDIR/flipper.log
+$WORKDIR/${PDBID}_final.pdb >>& $WORKDIR/flipper.log
 
 ###########################################  Correlation coefficients  ###################################################
 echo " " | tee -a $LOG
@@ -8847,6 +8914,7 @@ xvalrunning:
         $JELLY
         $TORSION
         $HARMCMD
+        external UndefinedAtoms ignore
         $METALCMD
         $NUCRCMD
         $RESTCMD
@@ -9020,7 +9088,7 @@ cd $WORKDIR
 rm -rf $WCWORF
 
 echo "-Validating the final model with tortoize" | tee -a $LOG
-$TOOLS/tortoize --xyzin $WORKDIR/${PDBID}_final.pdb --output $WORKDIR/${PDBID}_final_tortoize.json >>& $WORKDIR/tortoize.log
+$TOOLS/tortoize $WORKDIR/${PDBID}_final.pdb $WORKDIR/${PDBID}_final_tortoize.json >>& $WORKDIR/tortoize.log
 
 #Extract statistics from refitted structure
 set FNATOM = `grep -c -E '^[AH][TE][OT][MA]' $WORKDIR/${PDBID}_final.pdb`
