@@ -2656,7 +2656,8 @@ _link_label.comp_id_2
 _link_label.refmac 
 C   ASP NE  ORN PEP-ORN  
 C   GLU NE  ORN PEP-ORN  
-C   LYS NE  ORN PEP-ORN  
+C   LYS NE  ORN PEP-ORN 
+C1  NAG ND2 ASN pyr-ASN 
 C1B XYP O4B XYP XYPa-XYP 
 O2  BGC C1  MAN ALPHA1-2 
 O2  BHG C1  FUC BETA1-2  
@@ -2977,5 +2978,8 @@ TYS Y
 TYI Y 
 YCM C 
 # 
-_res_hetero_TLS.append   ZN 
+loop_
+_res_hetero_TLS.append   
+ZN
+HEC
 # 
