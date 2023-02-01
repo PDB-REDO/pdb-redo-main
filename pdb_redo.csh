@@ -138,8 +138,11 @@ endif
 # - x3dna-dssr     Needed for nucleic acid restraints and validation.
 #
 ####################################################### Change log #######################################################
-set VERSION = '8.00' #PDB-REDO version
+set VERSION = '8.01' #PDB-REDO version
 
+# Version 8.01:
+# - New program rama-angles annotates data.json for the Kleywegt-like plot.
+#
 # Version 8.00:
 # - Operations now start from an mmCIF-formatted coordinate file rather than a PDB-formatted file. PDB input files are 
 #   converted. 
@@ -151,6 +154,7 @@ set VERSION = '8.00' #PDB-REDO version
 # - Removed --pdbin argument. --xyzin should be used instead.
 # - Changed protein restraints to EH99/IT2006 with modifications for ARG.
 # - Added temporary(?) contingency to allow PDB conversion.
+# - No attic for server jobs.
 #
 # Version 7.38:
 # - A compressed FAIRness copy is added which allows the use of permament identifiers.
@@ -631,9 +635,9 @@ if ($1 == "--local") then
 endif
 
 #Write out header
-echo " __   __   __     __   ___  __   __    _     __   __  " | tee -a $LOG
-echo "|__) |  \ |__) _ |__) |__  |  \ /  \  (_)   / /\ / /\ " | tee -a $LOG
-echo "|    |__/ |__)   |  \ |___ |__/ \__/  (_) o \/_/ \/_/ " | tee -a $LOG
+echo " __   __   __     __   ___  __   __    _     __     " | tee -a $LOG
+echo "|__) |  \ |__) _ |__) |__  |  \ /  \  (_)   / /\ /| " | tee -a $LOG
+echo "|    |__/ |__)   |  \ |___ |__/ \__/  (_) o \/_/  | " | tee -a $LOG
 echo " "
 
 #Font for the header
@@ -1195,7 +1199,64 @@ if ($NOPDB == 0) then
       #Clean the PDB file up
       #Strip out proprietary REMARKS, USER records, gap LINKs, and poor TER records; fix LINK records (convert LINK records without distance to LINKR)
       cat $XYZIN | grep -v -e '^REMARK [ ,a-z,A-Z][ ,a-z,A-Z][a-z,A-Z]' | grep -v -E '^TER.$' | grep -v -E '^TER$' | grep -v -E '^USER' | grep -v -E 'LINKR.{67}gap' | sed -e '/^LINK .\{69\}     /s/LINK /LINKR/g' -e '/^LINK .\{53\}$/s/LINK /LINKR/g' -e '/^LINK .\{52\}$/s/LINK /LINKR/g' > $WORKDIR/cleanpdb.pdb
+ 
+      #De-Buster the file if needed
+      if (`grep -c 'REMARK --------------------- added by autoBUSTER -' $WORKDIR/cleanpdb.pdb` > 0) then
+        #Give detailed warning message
+        if ($LOCAL == 1) then
+          echo " " | tee -a $LOG
+          echo "WARNING!" | tee -a $LOG
+          echo "------------" | tee -a $LOG
+          echo "Your input coordinate file has Buster-specific format errors. Trying to compensate." | tee -a $LOG
+          echo " " | tee -a $LOG
+        else
+          echo "-The coordinate file has format errors. Trying to compensate." | tee -a $LOG
+        endif
+        #De-Buster and continue
+        cp $WORKDIR/cleanpdb.pdb $WORKDIR/cleanpdb.bak
+        set DEBUST = `grep -n 'REMARK --------------------- added by autoBUSTER -' $WORKDIR/cleanpdb.bak | tail -n 1 | cut -d ':' -f 1 | awk '{print $1 +1}'`
+        tail -n +$DEBUST $WORKDIR/cleanpdb.bak > $WORKDIR/cleanpdb.pdb
+      endif
+      
+      #Count atoms without chain identifier
+      if (`grep -E '^[HA][ET][TO][AM]' $WORKDIR/cleanpdb.pdb | cut -c 22 | grep -c ' '` > 0) then
+        if ($LOCAL == 1) then
+          echo " " | tee -a $LOG
+          echo "WARNING!" | tee -a $LOG
+          echo "------------" | tee -a $LOG
+          echo "Some residues have no chain identifier. Trying to compensate." | tee -a $LOG
+          echo " " | tee -a $LOG
+        else
+          echo "-Some residues have no chain identifier. Trying to compensate." | tee -a $LOG
+        endif
+        
+        #Use sed to set the missing chainID to 'z'
+        sed -i '/^[HAT][ET][TOR][AM ]................. /s/^\(.\{21\}\) /\1z/' $WORKDIR/cleanpdb.pdb
+      endif
 
+      #De-Phenix the file if needed
+      if (`grep -c 'REMARK IF THIS FILE IS FOR PDB DEPOSITION: REMOVE ALL FROM THIS LINE UP.' $WORKDIR/cleanpdb.pdb` > 0) then
+        #Give detailed warning message
+        if ($LOCAL == 1) then
+          echo " " | tee -a $LOG
+          echo "WARNING!" | tee -a $LOG
+          echo "------------" | tee -a $LOG
+          echo "Your input coordinate file has phenix.refine-specific format errors. Trying to compensate." | tee -a $LOG
+          echo " " | tee -a $LOG
+        else
+          echo "-The coordinate file has format errors. Trying to compensate." | tee -a $LOG
+        endif
+        #De-Phenix and continue
+        cp $WORKDIR/cleanpdb.pdb $WORKDIR/cleanpdb.bak
+        grep -A 250000 'REMARK IF THIS FILE IS FOR PDB DEPOSITION:' $WORKDIR/cleanpdb.bak | grep -v 'REMARK IF THIS FILE IS FOR PDB DEPOSITION:' | grep . >  $WORKDIR/cleanpdb.pdb
+      endif
+      
+      #Check for a missing HEADER line
+      if (`grep -c '^HEADER' $WORKDIR/cleanpdb.pdb` == 0) then
+        #Prepend a HEADER LINE
+        sed -i '1s/^/HEADER    SOME MACROMOLECULE                      01-JAN-50   XXXX\n/' $WORKDIR/cleanpdb.pdb
+      endif
+      
       #Do the file conversion
       $TOOLS/pdb2cif $WORKDIR/cleanpdb.pdb $WORKDIR/${PDBID}.xyz.cif >& $WORKDIR/pdb2cif.log
       if (! -e $WORKDIR/${PDBID}.xyz.cif) then
@@ -1757,8 +1818,7 @@ if ($DOMETALREST == 1) then
       mv ${PDBID}_platonyzed.restraints $WORKDIR/metal.rest
       set METALCMD = "@$WORKDIR/metal.rest"
     endif
-  else 
-    exit(1)	  
+  else  
     cp $WORKDIR/${PDBID}_carbonanza.cif $WORKDIR/${PDBID}_platonyzed.cif
   endif
 else  
@@ -1776,6 +1836,7 @@ $WORKDIR/${PDBID}_platonyzed.cif \
 $WORKDIR/${PDBID}_prepped.pdb \
 $SMODE \
 --pdb-redo-data $TOOLS/pdb-redo-data.cif \
+--cab-sg-distance 3.0 \
 $DICTCMD \
 >& $WORKDIR/prepper.log
 
@@ -7898,7 +7959,7 @@ endif
 @ NCHIRFX = ($CHIFIX + $NCHIRFX)
 
 ################################################## (Re)build carbohydrates ###############################################
-if ($DOSUGARBUILD == 1 && $GOT_PROT == 'T') then
+if ($DOSUGARBUILD == 2 && $GOT_PROT == 'T') then
 
   #Start reporting
   echo " " | tee -a $LOG
@@ -9972,8 +10033,6 @@ gzip -f $WORKDIR/${PDBID}_besttls.mtz
 #Create mmcif file
 
 #Merge data from input model
-cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software."cif-merge".used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-
 $TOOLS/cif-merge -v \
 -i $WORKDIR/${PDBID}_final_tot.pdb \
 -o $WORKDIR/${PDBID}_final.cif \
@@ -9983,6 +10042,7 @@ $DICTCMD \
 #Fallback direct conversion
 if (! -e $WORKDIR/${PDBID}_final.cif) then
   cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.pdb2cif.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
+  cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software."cif-merge".used |= false' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
 
   $TOOLS/pdb2cif -v \
   $WORKDIR/${PDBID}_final_tot.pdb \
@@ -10155,12 +10215,20 @@ endif
 cat $TOUTPUT/tdata.json | jq --arg title "$TITLE" '.properties += {TITLE: $title}' > $TOUTPUT/data.json
 rm $TOUTPUT/tdata.json
 
+#Annotate data.json with rama-angles
+if ($GOT_PROT == T) then
+  cp $TOUTPUT/versions.json $WORKDIR/versions.json.bak && jq '.software."rama-angles".used |= true' $WORKDIR/versions.json.bak > $TOUTPUT/versions.json
+  $TOOLS/rama-angles -v $TOUTPUT >& $WORKDIR/rama-angles.log
+endif
+
 #Keep a long-term copies for FAIRness
-if (-e $OUTPUT/attic) then
-  cp -r $OUTPUT/attic $TOUTPUT/
-else
-  mkdir -p $TOUTPUT/attic
-endif  
+if ($SERVER == 0) then
+  if (-e $OUTPUT/attic) then
+    cp -r $OUTPUT/attic $TOUTPUT/
+  else
+    mkdir -p $TOUTPUT/attic
+  endif  
+endif
 
 #Set the version tags
 set VTAG = `sha256sum $WORKDIR/versions.json | cut -c 1-9`
@@ -10173,13 +10241,15 @@ if ($LOCAL == 0 && $VTAG == e3b0c4429) then
 endif
 
 #Make a new attic if it has a new version tag
-if (! -e $TOUTPUT/attic/$VTAG) then
-  mkdir $TOUTPUT/attic/$VTAG
-  gzip -c $TOUTPUT/${PDBID}_final.cif > $TOUTPUT/attic/$VTAG/final.cif.gz
-  gzip -c $TOUTPUT/${PDBID}_final.mtz > $TOUTPUT/attic/$VTAG/final.mtz.gz
-  cp $TOUTPUT/versions.json  $TOUTPUT/attic/$VTAG/versions.json
-  cp $TOUTPUT/data.json      $TOUTPUT/attic/$VTAG/data.json
-endif
+if ($SERVER == 0) then
+  if (! -e $TOUTPUT/attic/$VTAG) then
+    mkdir $TOUTPUT/attic/$VTAG
+    gzip -c $TOUTPUT/${PDBID}_final.cif > $TOUTPUT/attic/$VTAG/final.cif.gz
+    gzip -c $TOUTPUT/${PDBID}_final.mtz > $TOUTPUT/attic/$VTAG/final.mtz.gz
+    cp $TOUTPUT/versions.json  $TOUTPUT/attic/$VTAG/versions.json
+    cp $TOUTPUT/data.json      $TOUTPUT/attic/$VTAG/data.json
+  endif
+endif  
 
 #Give final results (usefull for batch jobs and quick result interpretation)
 if ($SERVER == 1) then

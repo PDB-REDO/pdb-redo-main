@@ -1,6 +1,6 @@
       PROGRAM EXTRACTOR
 C=======================================================================
-C  Version 6.02 2022-01-18
+C  Version 6.03 2023-01-31
 C  Extracts a number of stats out of a PDB and a SF file.
 C
 C  Usage: extractor (flags) PDB_IN CIF_IN MON_LIST REDO_DATA DATA_OUT 
@@ -52,6 +52,7 @@ C    Copyright (C) 1999 Bart Hazes
 C
 C Change log
 C Version 6:
+C 6.03 Added fixes for quotes in program names
 C 6.02 Title records are now also mined
 C 6.01 Some cleanup and tollerance for more compounds
 C 6.00 The cell dimensions are now taken from the reflection data rather
@@ -179,7 +180,7 @@ C-----Declare basic variables and parameters
       INTEGER   MAXDAT, MAXCIF, MAXCHN, REFBIN, I, J, K, STATUS, ARGS,
      +          MAXRES, MAXHET, MAXLNK
       CHARACTER RESIDUES*83, BACKBONE*24, VERS*4
-      PARAMETER (VERS='6.02')
+      PARAMETER (VERS='6.03')
 C-----MAXDAT is the maximum allowed lines in a PDB file
       PARAMETER (MAXDAT=999999)
 C-----MAXCIF is the maximum allowed lines in a CIF file
@@ -191,7 +192,7 @@ C-----The number of reflection bins used for calculation
 C-----The number of residues in the NO_BLD arrays
       PARAMETER (MAXRES=2000)
 C-----The maximum number of hetero compounds
-      PARAMETER (MAXHET=30000)
+      PARAMETER (MAXHET=40000)
 C-----The maximum number of cached LINKs
       PARAMETER (MAXLNK=2000)
 
@@ -3057,8 +3058,8 @@ C     LINLEN  The length of 'LINE' without the trailing spaces
       END      
       
 C-----------------------------------------------------------------------
-C  This function replaces spaces by underscores but not the 'fillers'
-C  at the end of a string
+C  This function replaces spaces and quotes by underscores but not the 
+C  'fillers' at the end of a string
 C-----------------------------------------------------------------------
       CHARACTER*(*) FUNCTION NOSPCE(LINE)
       IMPLICIT NONE
@@ -3068,13 +3069,23 @@ C-----------------------------------------------------------------------
       LINLEN = LENSTR(LINE)
       DO 10, I=1, LINLEN
         SPACE = INDEX(LINE, ' ')
+        
         IF ((SPACE.EQ.0).OR.(SPACE.GT.LINLEN)) THEN
-          GO TO 20
+          GO TO 11
         ELSE
           LINE(SPACE:SPACE) = '_'
         END IF
 10    CONTINUE
-20    NOSPCE=LINE     
+11    DO 20, I=1, LINLEN
+        SPACE = INDEX(LINE, "'")
+        
+        IF ((SPACE.EQ.0).OR.(SPACE.GT.LINLEN)) THEN
+          GO TO 30
+        ELSE
+          LINE(SPACE:SPACE) = '_'
+        END IF
+20    CONTINUE
+30    NOSPCE=LINE     
       RETURN 
       END
 C-----------------------------------------------------------------------

@@ -157,10 +157,22 @@ class ligandvalidation:
 
         for element in file_0cyc:
             if element['pdb']['compID'] == pdb_compID and element['pdb']['seqNum'] == pdb_seqNum and element['pdb']['strandID'] == pdb_strandID:
-                RSRfactor = float(round(element['RSR'], 3))
-                RSCCS = float(round(element['RSCCS'], 3))
-                EDIAm = float(round(element['EDIAm'], 3))
-                OPIA = float(round(element['OPIA'], 3))
+                try:
+                    RSRfactor = float(round(element['RSR'], 3))
+                except:
+                    RSRfactor = None
+                try:    
+                    RSCCS = float(round(element['RSCCS'], 3))
+                except:
+                    RSCCS = None
+                try:
+                    EDIAm = float(round(element['EDIAm'], 3))
+                except:
+                    EDIAm = None
+                try:
+                    OPIA = float(round(element['OPIA'], 3))
+                except: 
+                    OPIA = None
                 
         density_fit = {}
         density_fit['real_space_Rfactor'] = RSRfactor
@@ -179,10 +191,22 @@ class ligandvalidation:
 
         for element in final:
             if element['pdb']['compID'] == pdb_compID and element['pdb']['seqNum'] == pdb_seqNum and element['pdb']['strandID'] == pdb_strandID:
-                RSRfactor = float(round(element['RSR'], 3))
-                RSCCS = float(round(element['RSCCS'], 3))
-                EDIAm = float(round(element['EDIAm'], 3))
-                OPIA = float(round(element['OPIA'], 3))
+                try:
+                    RSRfactor = float(round(element['RSR'], 3))
+                except:
+                    RSRfactor = None
+                try:    
+                    RSCCS = float(round(element['RSCCS'], 3))
+                except:
+                    RSCCS = None
+                try:
+                    EDIAm = float(round(element['EDIAm'], 3))
+                except:
+                    EDIAm = None
+                try:    
+                    OPIA = float(round(element['OPIA'], 3))
+                except:
+                    OPIA = None
                 
         density_fit = {}
         density_fit['real_space_Rfactor'] = RSRfactor
