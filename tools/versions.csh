@@ -5,7 +5,7 @@
 # ./versions.csh TOOLS_Directory
 #
 # Changelog:
-# - Added workaround for all the temporary file from WHAT_CHECK
+# - Added workaround for all the temporary files from WHAT_CHECK
 # - Added support for not having FoldX.
 # - Reduced the number of variables by recycling $VERSION.
 # - Stopped listing programs in order of appearance. They are now showed in 
@@ -282,7 +282,7 @@ cp $VFILE $VFILE.tmp && jq '.software +={"pdbset":{ "version":$version, "used":f
 
 # 62) mmCQL
 set VERSION = `$TOOLS/mmCQL --version | awk '{print $3}'`
-cp $VFILE $VFILE.tmp && jq '.software +={"mmCQL":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
+cp $VFILE $VFILE.tmp && jq '.software +={"mmCQL":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
 # 63) tortoize
 set VERSION = `$TOOLS/tortoize --version | awk '{print $3}'`
@@ -298,11 +298,15 @@ cp $VFILE $VFILE.tmp && jq '.software +={"COOT":{ "version":$version, "used":fal
 
 # 66) cif-grep
 set VERSION = `$TOOLS/cif-grep --version | awk '{print $3}'`
-cp $VFILE $VFILE.tmp && jq '.software +={"cif-grep":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
+cp $VFILE $VFILE.tmp && jq '.software +={"cif-grep":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
 # 67) dRSCC, always
 set VERSION = `$TOOLS/dRSCC | grep version | awk '{print $4}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"dRSCC":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
+
+# 68) rama-angles
+set VERSION = `$TOOLS/rama-angles --version | awk '{print $3}'`
+cp $VFILE $VFILE.tmp && jq '.software +={"rama-angles":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
 #Cleanup
 rm versions.log
