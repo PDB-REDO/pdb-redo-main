@@ -54,11 +54,11 @@ if ($#argv == 0 ) then
   echo "-The --download flag lets the required data from be downloaded from PDBe. Without"
   echo " this flag the required data is taken from a local copy of the PDB."
   echo "-The --params option takes a JSON file with the basic debug flags below. The key is" 
-  echo " the flag without the '--' and the value is 1 to activate it. The tighter and looser"
-  echo " keys take positive integers. Higher numbers increase the tightness (or looseness)"
-  echo " of the restraints. The fitlig key takes an array of residue names and the maxres "
-  echo " key takes a float. Example:"
-  echo '  {"legacy": 1, "fitlig": ["SO4", "GOL"], "crossval":0, "tighter":2}'    
+  echo " the flag without the '--' and the value is 1 or true to activate it. The tighter"
+  echo " and looser keys take positive integers. Higher numbers increase the tightness (or"
+  echo " looseness) of the restraints. The fitlig key takes an array of residue names and"
+  echo " the maxres key takes a float. Example:"
+  echo '  {"legacy": true, "fitlig": ["SO4", "GOL"], "crossval": false, "tighter":2}'    
   echo " "
   echo "These basic debug flags are available:"
   echo "--nohyd       : do not add hydrogens (in riding postions) during refinement"
@@ -142,6 +142,8 @@ set VERSION = '8.01' #PDB-REDO version
 
 # Version 8.01:
 # - New program rama-angles annotates data.json for the Kleywegt-like plot.
+# - Fix for cif-merge to use cache.cif.
+# - Added boolean support form the input JSON.
 #
 # Version 8.00:
 # - Operations now start from an mmCIF-formatted coordinate file rather than a PDB-formatted file. PDB input files are 
@@ -911,16 +913,16 @@ if ("$PARAMS" != "") then
       set FITLIGANDS = 1
     end
   endif  
-  if (`jq .nohyd $PARAMS` == 1) then
+  if (`jq .nohyd $PARAMS` == 1 || `jq .nohyd $PARAMS` == true) then
     set NOHYD    = 1
     set HYDROGEN = NO
     echo " o Hydrogens will NOT be added in the riding position during refinement" | tee -a $LOG
   endif  
-  if (`jq .legacy $PARAMS` == 1) then
+  if (`jq .legacy $PARAMS` == 1 || `jq .legacy $PARAMS` == true) then
     set LEGACY = 1
     echo " o The PDB file will be treated as a legacy PDB entry" | tee -a $LOG
   endif  
-  if (`jq .tighter $PARAMS` != null && `jq .looser $PARAMS` > 0) then
+  if (`jq .tighter $PARAMS` != null && `jq .tighter $PARAMS` > 0) then
     @ RESCATSTEP = ($RESCATSTEP - `jq .tighter $PARAMS`)
     echo " o Restraint tightness set to $RESCATSTEP (lower is tighter)" | tee -a $LOG
   endif  
@@ -928,84 +930,84 @@ if ("$PARAMS" != "") then
     @ RESCATSTEP = ($RESCATSTEP + `jq .looser $PARAMS`)
     echo " o Restraint tightness set to $RESCATSTEP (higher is looser)" | tee -a $LOG
   endif  
-  if (`jq .notls $PARAMS` == 1) then
+  if (`jq .notls $PARAMS` == 1 || `jq .notls $PARAMS` == true) then
     set DOTLS = 0
     echo " o No TLS refinement will be performed" | tee -a $LOG
   endif  
-  if (`jq .notlsupdate $PARAMS` == 1) then
+  if (`jq .notlsupdate $PARAMS` == 1 || `jq .notlsupdate $PARAMS` == true) then
     set TLSUPDATE = 0
     echo " o No additional TLS refinement will be performed after rebuilding" | tee -a $LOG
   endif
-  if (`jq .noncs $PARAMS` == 1) then
+  if (`jq .noncs $PARAMS` == 1 || `jq .noncs $PARAMS` == true) then
     set DONCS = 0
     echo " o No NCS restraints will be used" | tee -a $LOG
   endif 
-  if (`jq .nojelly $PARAMS` == 1) then
+  if (`jq .nojelly $PARAMS` == 1 || `jq .nojelly $PARAMS` == true) then
     set DOJELLY = 0
     echo " o Not doing jelly-body refinement" | tee -a $LOG
   endif
-  if (`jq .norb $PARAMS` == 1) then
+  if (`jq .norb $PARAMS` == 1 || `jq .norb $PARAMS` == true) then
     set DORB = 0
     echo " o Not doing rigid-body refinement" | tee -a $LOG    
   endif
-  if (`jq .noharmonic $PARAMS` == 1) then
+  if (`jq .noharmonic $PARAMS` == 1 || `jq .noharmonic $PARAMS` == true) then
     set DOHARMONIC = 0
     echo " o Not using harmonic restraints for small datasets" | tee -a $LOG
   endif
-  if (`jq .nometalrest $PARAMS` == 1) then
+  if (`jq .nometalrest $PARAMS` == 1 || `jq .nometalrest $PARAMS` == true) then
     set DOMETALREST = 0
     echo " o Not using additional metal site restraints" | tee -a $LOG
   endif
-  if (`jq .notwin $PARAMS` == 1) then
+  if (`jq .notwin $PARAMS` == 1 || jq .notwin $PARAMS` == true) then
     set TWIN   =     #No detwinning
     set DOTWIN = 0
     echo " o No detwinning will be performed" | tee -a $LOG
   endif
-  if (`jq .noanomalous $PARAMS` == 1) then
+  if (`jq .noanomalous $PARAMS` == 1 || `jq .noanomalous $PARAMS` == true) then
     set C2CANO = ""
     echo " o Anomalous data will be ignored" | tee -a $LOG
   endif
-  if (`jq .newmodel $PARAMS` == 1) then
+  if (`jq .newmodel $PARAMS` == 1 || `jq .newmodel $PARAMS` == true) then
     set NEWMODEL = "-f" #Force rerefinement to finish with new model
     echo " o Rerefinement will always return a new model" | tee -a $LOG
   endif
-  if (`jq .nocentrifuge $PARAMS` == 1) then
+  if (`jq .nocentrifuge $PARAMS` == 1 || `jq .nocentrifuge $PARAMS` == true) then
     set DOCENTRIFUGE = 0    #No water deletion
     echo " o Poor waters will not be deleted" | tee -a $LOG
   endif
-  if (`jq .nopepflip $PARAMS` == 1) then
+  if (`jq .nopepflip $PARAMS` == 1 || `jq .nopepflip $PARAMS` == true) then
     set DOPEPFLIP = 0    #No peptide flips
     echo " o No peptide flips will be performed" | tee -a $LOG
   endif
-  if (`jq .noscbuild $PARAMS` == 1) then
+  if (`jq .noscbuild $PARAMS` == 1 || `jq .noscbuild $PARAMS` == true) then
     set DOSCBUILD = 0    #No side chain rebuilding
     echo " o Side chains will not be rebuilt" | tee -a $LOG
   endif
-  if (`jq .norebuild $PARAMS` == 1) then
+  if (`jq .norebuild $PARAMS` == 1 || `jq .norebuild $PARAMS` == true) then
     set DOREBUILD = 0    #No rebuilding at all
     echo " o No rebuilding at all" | tee -a $LOG
   endif
-  if (`jq .nosugarbuild $PARAMS` == 1) then
+  if (`jq .nosugarbuild $PARAMS` == 1 || `jq .nosugarbuild $PARAMS` == true) then
     set DOSUGARBUILD = 0    #No sugar rebuilding at all
     echo " o No sugar (re)building at all" | tee -a $LOG       
   endif
-  if (`jq .nonucrest $PARAMS` == 1) then
+  if (`jq .nonucrest $PARAMS` == 1 || `jq .nonucrest $PARAMS` == true) then
     set DONUCR = 0    #Do not generate basepair and stacking restraints
     echo " o Not using DNA/RNA restraints" | tee -a $LOG
   endif
-  if (`jq .noocc $PARAMS` == 1) then
+  if (`jq .noocc $PARAMS` == 1 || `jq .noocc $PARAMS` == true) then
     set DOOCC = 0    #No occupancy refinement
     echo " o No occupancy refinement" | tee -a $LOG
   endif
-  if (`jq .notruncate $PARAMS` == 1) then
+  if (`jq .notruncate $PARAMS` == 1 || `jq .notruncate $PARAMS` == true) then
     set C2CCONV = '-c'    #Use cif2cif instead of ctruncate to convert intensities
     echo " o Not using truncate" | tee -a $LOG
   endif
-  if (`jq .crossval $PARAMS` == 1) then
+  if (`jq .crossval $PARAMS` == 1 || `jq .crossval $PARAMS` == true) then
     set CROSS = 1
     echo " o Full k-fold cross validation will be performed" | tee -a $LOG
   endif
-  if (`jq .fewrefs $PARAMS` == 1) then
+  if (`jq .fewrefs $PARAMS` == 1 || `jq .fewrefs $PARAMS` == true) then
     set FEWREFS = "-n"
     echo " o Working with very small data set" | tee -a $LOG
   endif
@@ -1013,48 +1015,48 @@ if ("$PARAMS" != "") then
     set MRESO = `jq .maxres $PARAMS`
     echo " o The data will be cut to $MRESO A" | tee -a $LOG
   endif  
-  if (`jq .intens $PARAMS` == 1) then
+  if (`jq .intens $PARAMS` == 1 || `jq .intens $PARAMS` == true) then
     set INTENS = "-i"
     echo " o Using intensities from the reflection file" | tee -a $LOG
   endif  
-  if (`jq .nosigma $PARAMS` == 1) then
+  if (`jq .nosigma $PARAMS` == 1 || `jq .nosigma $PARAMS` == true) then
     set SIGMA  = "-g"
     set USIGMA = 0
     echo " o Not using sigF or sigI values from reflection file" | tee -a $LOG
   endif
-  if (`jq .paired $PARAMS` == 1) then
+  if (`jq .paired $PARAMS` == 1 || `jq .paired $PARAMS` == true) then
     set FORCEPAIRED = 1 
     echo " o Performing paired refinement" | tee -a $LOG
   endif
-  if (`jq .noloops $PARAMS` == 1) then
+  if (`jq .noloops $PARAMS` == 1 || `jq .noloops $PARAMS` == true) then
     set DOLOOPS = 0
     echo " o No loops will be built" | tee -a $LOG 
   endif
-  if (`jq .nofixdmc $PARAMS` == 1) then
+  if (`jq .nofixdmc $PARAMS` == 1 || `jq .nofixdmc $PARAMS` == true) then
     set DOFIXDMC = 0
     echo " o No correction of missing backbone atoms" | tee -a $LOG     
   endif
-  if (`jq .hbondrest $PARAMS` == 1) then
+  if (`jq .hbondrest $PARAMS` == 1 || `jq .hbondrest $PARAMS` == true) then
     set HBONDREST = 1
     echo " o Using hydrogen bond restraints" | tee -a $LOG
   endif
-  if (`jq .homology $PARAMS` == 1) then
+  if (`jq .homology $PARAMS` == 1 || `jq .homology $PARAMS` == true) then
     set DOHOMOLOGY = 1
     echo " o Using homology-based restraints" | tee -a $LOG
   endif
-  if (`jq .nohomology $PARAMS` == 1) then
+  if (`jq .nohomology $PARAMS` == 1 || `jq .nohomology $PARAMS` ==  true) then
     set NOHOMOLOGY = 1
     echo " o No homology-based restraints will be used" | tee -a $LOG
   endif
-  if (`jq .isotropic $PARAMS` == 1) then
+  if (`jq .isotropic $PARAMS` == 1 || `jq .isotropic $PARAMS` == true) then
     set BISOT = 1
     echo " o Forcing isotropic B-factors, with fewer than 30 reflections/atom" | tee -a $LOG  
   endif
-  if (`jq .nqa_isotropic $PARAMS` == 1) then
+  if (`jq .nqa_isotropic $PARAMS` == 1 || `jq .nqa_isotropic $PARAMS` == true) then
     set FISOT = 1
     echo " o Forcing isotropic B-factors, no questions asked" | tee -a $LOG  
   endif 
-  if (`jq .anisotropic $PARAMS` == 1) then
+  if (`jq .anisotropic $PARAMS` == 1 || `jq .anisotropic $PARAMS` == true) then
     set BANISOT = 1
     echo " o Forcing anisotropic B-factors" | tee -a $LOG  
   endif
@@ -1614,18 +1616,18 @@ endif
 set MALPHA = `$TOOLS/cif-grep -i _cell.angle_alpha . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.3f\n", $1 + 0.000001}'`
 set MBETA  = `$TOOLS/cif-grep -i _cell.angle_beta  . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.3f\n", $1 + 0.000001}'`
 set MGAMMA = `$TOOLS/cif-grep -i _cell.angle_gamma . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.3f\n", $1 + 0.000001}'`
-set MAAXIS  = `$TOOLS/cif-grep -i _cell.length_a . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.2f\n", $1 + 0.000001}'`
-set MBAXIS = `$TOOLS/cif-grep -i _cell.length_b . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.2f\n", $1 + 0.000001}'`
-set MCAXIS = `$TOOLS/cif-grep -i _cell.length_c . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.2f\n", $1 + 0.000001}'`
+set MAAXIS = `$TOOLS/cif-grep -i _cell.length_a . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.3f\n", $1 + 0.000001}'`
+set MBAXIS = `$TOOLS/cif-grep -i _cell.length_b . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.3f\n", $1 + 0.000001}'`
+set MCAXIS = `$TOOLS/cif-grep -i _cell.length_c . $WORKDIR/$PDBID.xyz.cif | awk '{printf "%.3f\n", $1 + 0.000001}'`
 set MSPACE = `$TOOLS/cif-grep -i _symmetry.space_group_name_H-M . $WORKDIR/$PDBID.xyz.cif | sed "s/P 21 21 2 A/P 21 21 2 (a)/g" | sed "s/P 1- /P -1/g"`
 
 #Read the cell dimensions for validation
 set RALPHA = `$TOOLS/cif-grep -i _cell.angle_alpha . $WORKDIR/r${PDBID}sf.ent | head -n 1 | awk '{printf "%.3f\n", $1 + 0.000001}'`
 set RBETA  = `$TOOLS/cif-grep -i _cell.angle_beta  . $WORKDIR/r${PDBID}sf.ent | head -n 1 | awk '{printf "%.3f\n", $1 + 0.000001}'`
 set RGAMMA = `$TOOLS/cif-grep -i _cell.angle_gamma . $WORKDIR/r${PDBID}sf.ent | head -n 1 | awk '{printf "%.3f\n", $1 + 0.000001}'`
-set RAAXIS = `$TOOLS/cif-grep -i _cell.length_a . $WORKDIR/r${PDBID}sf.ent | head -n 1 | awk '{printf "%.2f\n", $1 + 0.000001}'`
-set RBAXIS = `$TOOLS/cif-grep -i _cell.length_b . $WORKDIR/r${PDBID}sf.ent | head -n 1 | awk '{printf "%.2f\n", $1 + 0.000001}'`
-set RCAXIS = `$TOOLS/cif-grep -i _cell.length_c . $WORKDIR/r${PDBID}sf.ent | head -n 1 | awk '{printf "%.2f\n", $1 + 0.000001}'`
+set RAAXIS = `$TOOLS/cif-grep -i _cell.length_a . $WORKDIR/r${PDBID}sf.ent | head -n 1 | awk '{printf "%.3f\n", $1 + 0.000001}'`
+set RBAXIS = `$TOOLS/cif-grep -i _cell.length_b . $WORKDIR/r${PDBID}sf.ent | head -n 1 | awk '{printf "%.3f\n", $1 + 0.000001}'`
+set RCAXIS = `$TOOLS/cif-grep -i _cell.length_c . $WORKDIR/r${PDBID}sf.ent | head -n 1 | awk '{printf "%.3f\n", $1 + 0.000001}'`
 set RSPACE = `$TOOLS/cif-grep -i _symmetry.space_group_name_H-M . $WORKDIR/r${PDBID}sf.ent | head -n 1 | sed "s/P 21 21 2 A/P 21 21 2 (a)/g" | sed "s/P 1- /P -1/g"`
 
 #Check whether the space groups match
@@ -10037,7 +10039,7 @@ $TOOLS/cif-merge -v \
 -i $WORKDIR/${PDBID}_final_tot.pdb \
 -o $WORKDIR/${PDBID}_final.cif \
 $DICTCMD \
---donor $WORKDIR/cache.pdb >& $WORKDIR/cif-merge.log
+--donor $WORKDIR/cache.cif >& $WORKDIR/cif-merge.log
 
 #Fallback direct conversion
 if (! -e $WORKDIR/${PDBID}_final.cif) then
