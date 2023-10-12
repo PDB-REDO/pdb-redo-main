@@ -105,6 +105,7 @@ if ($#argv == 0 ) then
   echo " "
   echo "Debug flags only for working on local PDB entries:"
   echo "--nopdb       : any existing PDB file in the working directory is not replaced"
+  echo "--frompdb     : start from the PDB databank in PDB format"
   echo "--nosf        : any existing reflection file in the working directory is not replaced"
   echo "--mtzdb       : the structure factor files are stored in MTZ format"
   echo " "
@@ -138,12 +139,33 @@ endif
 # - x3dna-dssr     Needed for nucleic acid restraints and validation.
 #
 ####################################################### Change log #######################################################
-set VERSION = '8.01' #PDB-REDO version
+set VERSION = '8.04' #PDB-REDO version
 
+# Version 8.04:
+# - Added explicit warning for compounds without restraints.
+# - Retuned the B-factor model selection to be less conservative.
+#
+# Version 8.03:
+# - Started using Refmacat.
+# - FSC values are now also collected. They are reported only for EM models.
+# - EM refinement uses tighther jelly body restraints now.
+# - Bond length and bond angle rmsZ values in validation now come from REFMAC rather than from WHAT_CHECK.
+# - If a previous PDB-REDO has to be collected, PDB-REDO runs in legacy mode without rigid-body refinement.
+# - Bugfix in the initial R-factor calculation when rigid-body refinement is switched off.
+# - Rigid-body refinement is no longer done by default in legacy mode.
+# - Final model is now annotated by DSSP with mmCIF output. Temporarily not using he CCP4 version of DSSP.
+#
+# Version 8.02:
+# - Cell dimension update is now done twice to deal with conflict when mergeing models with cif-merge.
+# - Added box size correction for scores based on reflection counts in EM mode.
+#
 # Version 8.01:
 # - New program rama-angles annotates data.json for the Kleywegt-like plot.
 # - Fix for cif-merge to use cache.cif.
 # - Added boolean support form the input JSON.
+# - Added fix for HETATM-only models.
+# - Added contingency for unmerged reflections in space groups not supported by SFtools (e.g. P1- in 6y14).
+# - Added the --frompdb flag to forcefully start from pdb-formatted entries.
 #
 # Version 8.00:
 # - Operations now start from an mmCIF-formatted coordinate file rather than a PDB-formatted file. PDB input files are 
@@ -479,7 +501,7 @@ set SOLVENT       = SIMP    #Use simple solvent model by default
 set MASKPAR       =         #Use default masking parameters
 set JELLY         =         #Do not use 'jelly body' refinement by default
 set TORSION       =         #Do not use torsion restraints by default
-set LOGSTEP       = 17      #Line number of Refmac log with required output (counted backwards)
+set LOGSTEP       = 26      #Line number of Refmac log with required output (counted backwards)
 set ESTRICT       =         #Picker is not extra strict
 set SHIFTCO       = 0.50    #Cut-off for atomic shift in ligand validation
 set EXTSCAL       = 10      #Scale for external restraints
@@ -531,6 +553,9 @@ set TRUSTSEQ     = 0            #Trust the sequence by default
 set SFTYPE       =              #Set scattering type for density-fitness (Default: X-ray) 
 set DIDMR        = 0            #No molecular replacement was done 
 set PREPPERRETRY = 0            #Number of prepper retries
+set CELLUPDATE   = 0            #Were the cell dimensions in the model updated
+set BOXSCALE     = 1.0          #Default correction for box sizes (EM only)
+set ISEM         = 0            #Assume it is not an EM structure model
 
 #Error flags
 set TTEST      = 0 #No errors in the TLS group optimisation
@@ -545,6 +570,7 @@ set NOPDB        = 0
 set CEDIT        = false  #The coordinate file is edited from the original PDB entry
 set NOSF         = 0
 set REDIT        = false  #The relection file is edited from the original PDB entry
+set FROMPDB      = 0      #Do not use the PDB formatted file from the PDB
 set USEMTZ       = 0
 set DOWNLOAD     = 0
 set NOHYD        = 0
@@ -638,8 +664,8 @@ endif
 
 #Write out header
 echo " __   __   __     __   ___  __   __    _     __     " | tee -a $LOG
-echo "|__) |  \ |__) _ |__) |__  |  \ /  \  (_)   / /\ /| " | tee -a $LOG
-echo "|    |__/ |__)   |  \ |___ |__/ \__/  (_) o \/_/  | " | tee -a $LOG
+echo "|__) |  \ |__) _ |__) |__  |  \ /  \  (_)   / /\ |_|" | tee -a $LOG
+echo "|    |__/ |__)   |  \ |___ |__/ \__/  (_) o \/_/   |" | tee -a $LOG
 echo " "
 
 #Font for the header
@@ -758,6 +784,9 @@ foreach ARG ($*)
     echo "-Keeping the PDB file in the working directory" | tee -a $LOG
     #Assume the file was edited
     set CEDIT = true
+  else if ($ARG == --frompdb) then
+    set FROMPDB = 1
+    echo "-Starting from PDB-formatted PDB entry" | tee -a $LOG  
   else if ($ARG == --nosf) then
     set NOSF     = 1
     echo "-Keeping the reflection file in the working directory" | tee -a $LOG
@@ -958,7 +987,7 @@ if ("$PARAMS" != "") then
     set DOMETALREST = 0
     echo " o Not using additional metal site restraints" | tee -a $LOG
   endif
-  if (`jq .notwin $PARAMS` == 1 || jq .notwin $PARAMS` == true) then
+  if (`jq .notwin $PARAMS` == 1 || `jq .notwin $PARAMS` == true) then
     set TWIN   =     #No detwinning
     set DOTWIN = 0
     echo " o No detwinning will be performed" | tee -a $LOG
@@ -1291,7 +1320,9 @@ if ($NOPDB == 0) then
     endif
   else
     #Copy coordinate file from different directory structures
-    if (-e $COORD/$PDBID.cif) then
+    if ($FROMPDB == 1 && -e $PDB/$D2/pdb$PDBID.ent) then
+      $TOOLS/pdb2cif $PDB/$D2/pdb$PDBID.ent $WORKDIR/$PDBID.xyz.cif
+    else if (-e $COORD/$PDBID.cif) then
       cp $COORD/$PDBID.cif $WORKDIR/$PDBID.xyz.cif
     else if (-e $COORD/$D2/$PDBID.cif) then
       cp $COORD/$D2/$PDBID.cif $WORKDIR/$PDBID.xyz.cif
@@ -1329,7 +1360,13 @@ if ($ISXRAY == 0) then #Not an X-ray structure, is it electron diffraction?
     set EXPTYP     = 'ED'
     #Ignore anomalous data
     set C2CANO = ""
-  else #Not an electron diffraction structure, is it electron microscopy?
+  else if (`$TOOLS/cif-grep -c -i _exptl.method 'NEUTRON DIFFRACTION' $WORKDIR/$PDBID.xyz.cif` == 1) then
+    echo "-Switching to neutron diffraction mode" | tee -a $LOG
+    #Use neutron form factors
+    set SCATTERCMD = 'source neutron'
+    set SFTYPE     = '--neutron-scattering'
+    set EXPTYP     = 'ND'  
+  else #Not a neutron diffraction structure, is it electron microscopy?
     set ISEM = `$TOOLS/cif-grep -c -i _exptl.method 'ELECTRON MICROSCOPY' $WORKDIR/$PDBID.xyz.cif`
     if ($ISEM == 1) then
       echo "-Switching to electron microscopy mode" | tee -a $LOG
@@ -1705,7 +1742,10 @@ eof
       echo "   * The input model is not valid enough to parse. Exit." | tee -a $LOG	  
     endif   
     exit(1)
-  endif    
+  endif  
+  
+  #Succesfully updated the cell dimensions, also apply again after cif-merge
+  set CELLUPDATE = 1
 else 
   cp $WORKDIR/$PDBID.xyz.cif $WORKDIR/${PDBID}_cell.cif 
 endif
@@ -1913,7 +1953,7 @@ if (! -e $WORKDIR/${PDBID}_prepped.pdb || -z $WORKDIR/${PDBID}_prepped.pdb) then
 endif
 
 #Check for ATOM records
-if (`grep -c '^ATOM' $WORKDIR/${PDBID}_prepped.pdb` == 0) then
+if (`grep -c '^[HA][ET][TO][AM]' $WORKDIR/${PDBID}_prepped.pdb` == 0) then
   #Try again once if the problem is caused by auth_asym_id
   if ($PREPPERRETRY == 0) then
     set PREPPERRETRY = 1
@@ -2564,40 +2604,41 @@ eof
     if ($?MERGEREP) then
       #Problem already reported
     else
+      
+      #First get the sigF or sigI column if it was rejected before
+      if (-e $WORKDIR/${PDBID}_badsig.cif) then
+        #Report
+        echo "   * Recovering sigma value data before merging" | tee -a $LOG
+
+        #Take the reflection file with the sigma columns
+        mv $WORKDIR/${PDBID}_badsig.cif $WORKDIR/$PDBID.hkl.cif
+
+        #Remake the mtz file
+        goto mtzmaking
+      endif
+      
+     #Report the problem (may be the second pass already)
       echo " o The reflections are not completely merged" | tee -a $LOG
       echo "COMMENT: unmerged reflections" >> $DEBUG
       echo "PDB-REDO,$PDBID"               >> $DEBUG
       set MERGEREP = 1
-    endif
+      
+      #Delete the output from cad.
+      rm $WORKDIR/raw.mtz
 
-    #First get the sigF or sigI column if it was rejected before
-    if (-e $WORKDIR/${PDBID}_badsig.cif) then
-      #Report
-      echo "   * Recovering sigma value data before merging" | tee -a $LOG
-
-      #Take the reflection file with the sigma columns
-      mv $WORKDIR/${PDBID}_badsig.cif $WORKDIR/$PDBID.hkl.cif
-
-      #Remake the mtz file
-      goto mtzmaking
-    endif
-
-    #Delete the output from cad.
-    rm $WORKDIR/raw.mtz
-
-    #Merge the reflections. PROGRAM: sftools
-    cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.sftools.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
+      #Merge the reflections. PROGRAM: sftools
+      cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.sftools.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
     
-    sftools << eof >> $WORKDIR/mtz_creation.log
-    read $WORKDIR/raw_nowavel.mtz
-    reduce
-    merge average
-    write $WORKDIR/raw.mtz
-    stop
+      sftools << eof >>& $WORKDIR/mtz_creation.log
+        read $WORKDIR/raw_nowavel.mtz
+        reduce
+        merge average
+        write $WORKDIR/raw.mtz
+        stop
 eof
-
-    #Add the wavelength again
-    goto wavelengthadd
+      #Add the wavelength again
+      goto wavelengthadd
+    endif
   endif
 endif
 
@@ -3124,7 +3165,7 @@ else
 endif
 
 #Run refmac for 0 cycles to check R-factors (with TLS). PROGRAM: REFMAC
-refmac5 \
+refmacat \
 XYZIN  $WORKDIR/${PDBID}_prepped.pdb \
 XYZOUT $WORKDIR/${PDBID}_0cyc$ISTLS.pdb \
 HKLIN  $WORKDIR/$PDBID.mtz \
@@ -3200,6 +3241,31 @@ if ($status || `grep -c 'Error: Fatal error. Cannot continue' $WORKDIR/${PDBID}_
     cd $BASE
     exit(1)
   endif
+  #See if there is an unknown compound
+  if (`grep -c 'Error: Provide restraint cif file(s) for ' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0) then
+    if ($LOCAL == 1) then
+      #Give the long error message
+      echo " " | tee -a $LOG
+      echo "FATAL ERROR!" | tee -a $LOG
+      echo "------------" | tee -a $LOG
+      echo "Input coordinates have an unknown compound: `grep 'Error: Provide restraint cif file(s) for' $WORKDIR/${PDBID}_0cyc$ISTLS.log | cut -c 42-`" | tee -a $LOG
+      echo "Please provide a restraint file for this compound." | tee -a $LOG
+    else
+      #Give the simple error message
+      echo " o Unknown compound `grep 'Error: Provide restraint cif file(s) for' $WORKDIR/${PDBID}_0cyc$ISTLS.log | cut -c 42-`. Cannot continue." | tee -a $LOG
+    endif
+    #Write out WHY_NOT mesage
+    echo "COMMENT: refmac: unknown compound" >> $WHYNOT
+    echo "PDB-REDO,$PDBID"                   >> $WHYNOT
+    if ($SERVER == 1) then
+      #Write out status files
+      touch $STDIR/stoppingProcess.txt
+      touch $STDIR/processStopped.txt
+    endif    
+    cd $BASE
+    exit(1)
+  endif
+  
   #Check to see if there are dictionary problems
   if (! -e $WORKDIR/${PDBID}_het.cif || "$INREST" != "") then
     #Check for atoms not in the dictionary
@@ -3317,7 +3383,7 @@ if ("$INREST" == "") then
     set LIBLIN = `echo LIBIN $WORKDIR/${PDBID}_het.cif LIBOUT $WORKDIR/${PDBID}_het2.cif`
 
     #Rerun refmac for 0 cycles
-    refmac5 \
+    refmacat \
     XYZIN  $WORKDIR/${PDBID}_prepped.pdb \
     XYZOUT $WORKDIR/${PDBID}_0cyc$ISTLS.pdb \
     HKLIN  $WORKDIR/$PDBID.mtz \
@@ -3493,7 +3559,7 @@ if ($ORITLS == 1) then
   set ISTLS = 'notls'
 
   #Rerun refmac for 0 cycles, again
-  refmac5 \
+  refmacat \
   XYZIN  $WORKDIR/${PDBID}_prepped.pdb \
   XYZOUT $WORKDIR/${PDBID}_0cyc$ISTLS.pdb \
   HKLIN  $WORKDIR/$PDBID.mtz \
@@ -3584,7 +3650,7 @@ if ($LEGACY == 0 && $DOTWIN == 1) then
     cp $WORKDIR/${PDBID}_0cyc.log $WORKDIR/${PDBID}_0cycv3.log
 
     #Run Refmac
-    refmac5 \
+    refmacat \
     XYZIN  $WORKDIR/${PDBID}_prepped.pdb \
     XYZOUT $WORKDIR/${PDBID}_0cyc.pdb \
     HKLIN  $WORKDIR/$PDBID.mtz \
@@ -3738,21 +3804,16 @@ eof
 endif
 
 
-#Check the fit with the data. If it is poor, try rigid-body refinement. This is always done when in legacy mode
-if ($DORB == 1 && (`$TOOLS/fitr $RFACT $RFREE $RCAL $RFCAL` == 0 || $LEGACY == 1)) then #R-factors do not fit, try rigid-body refinement.
+#Check the fit with the data. If it is poor, try rigid-body refinement.
+if ($DORB == 1 && $RFACT != "NA" &&`$TOOLS/fitr $RFACT $RFREE $RCAL $RFCAL` == 0) then #R-factors do not fit, try rigid-body refinement.
 
   #Create a backup
   cp $WORKDIR/${PDBID}_0cyc.log $WORKDIR/${PDBID}_0cycv5.log
 
   #Do $RBCYCLE cycles of rigid body refinement
-  if ($LEGACY == 1) then
-    echo "-Legacy mode" | tee -a $LOG
-    echo -n " o Doing rigid-body refinement " | tee -a $LOG
-    set RBCYCLE = 15
-  else
-    echo " o Problem reproducing the R-factors"  | tee -a $LOG
-    echo -n "-Trying rigid-body refinement " | tee -a $LOG
-  endif
+  echo " o Problem reproducing the R-factors"  | tee -a $LOG
+  echo -n "-Trying rigid-body refinement " | tee -a $LOG
+
 
   #Set up NCS
   if ($STRICTNCS == 1) then
@@ -3760,7 +3821,7 @@ if ($DORB == 1 && (`$TOOLS/fitr $RFACT $RFREE $RCAL $RFCAL` == 0 || $LEGACY == 1
   endif
 
   #Run Refmac
-  refmac5 \
+  refmacat \
   XYZIN $WORKDIR/${PDBID}_prepped.pdb \
   XYZOUT $WORKDIR/${PDBID}_refmacrb.pdb \
   HKLIN $WORKDIR/$PDBID.mtz \
@@ -3817,7 +3878,7 @@ eof
 
   #Now do another restrained refinement run to include the TLS contribution (if needed)
   if ($ORITLS == 1) then
-    refmac5 \
+    refmacat \
     XYZIN  $WORKDIR/${PDBID}_refmacrb.pdb \
     XYZOUT $WORKDIR/${PDBID}_0cyc.pdb \
     HKLIN  $WORKDIR/$PDBID.mtz \
@@ -3886,7 +3947,7 @@ eof
   cp $WORKDIR/${PDBID}_refmacrb.pdb $WORKDIR/${PDBID}_0cyc.pdb
   
 else  
-  cp $WORKDIR/${PDBID}_prepped.pdb $WORKDIR/${PDBID}_refmacrb.pdb
+  cp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_refmacrb.pdb
 endif
 
 #Check the fit with the data. If it is poor, try short TLS-refinement
@@ -3904,7 +3965,7 @@ if (`$TOOLS/fitr $RFACT $RFREE $RCAL $RFCAL` == 0) then
     grep -E 'TLS|RANGE|^ ' $WORKDIR/${PDBID}.tls > $WORKDIR/${PDBID}_0cycin.tls
 
     #Run Refmac with 5 TLS cycles
-    refmac5 \
+    refmacat \
     XYZIN  $WORKDIR/${PDBID}_refmacrb.pdb \
     XYZOUT $WORKDIR/${PDBID}_TLS0cyc.pdb \
     HKLIN  $WORKDIR/$PDBID.mtz \
@@ -4002,6 +4063,9 @@ endif
 #Get the geometry
 set RMSZB = `tail -n $LOGSTEP $WORKDIR/${PDBID}_0cyc.log | head -n 1 | sed 's/\*\*\*\*\*\*/huge/g' | awk '{print $8}'`
 set RMSZA = `tail -n $LOGSTEP $WORKDIR/${PDBID}_0cyc.log | head -n 1 | sed 's/\*\*\*\*\*\*/huge/g' | awk '{print $10}'`
+#Store values for validation
+set OBRMSZ = $RMSZB
+set OARMSZ = $RMSZA
 
 #Do last ditch MR attempts if it is really bad
 if ($DIDMR == 0 && `$TOOLS/fitr $RFACT $RFREE $RCAL $RFCAL 0.10` == 0 && `echo $RFCAL | awk '{if ($1 > 0.500) {print 1} else {print 0}}'` == 1) then 
@@ -4058,9 +4122,12 @@ else
       if($status) then
         echo "   * Re-refinement aborted" | tee -a $LOG
       else
+        #Work in legacy mode but skip rigid-body
         zcat $WORKDIR/${PDBID}_0cyc.pdb.gz > $WORKDIR/${PDBID}_prepped.pdb
         echo "   * Trying previous PDB-REDO entry as starting point" | tee -a $LOG
         set GOTOLD = 1
+        set LEGACY = 1
+        set DORB = 0
         goto previousredo
       endif
     else
@@ -4079,6 +4146,13 @@ else
     exit(1)
   endif
 endif
+
+# Get FSC values
+set FSCWCAL = `grep 'Average Fourier shell correlation' $WORKDIR/${PDBID}_0cyc.log | awk '{print $6}'`
+set FSCFCAL = `grep 'AverageFree Fourier shell correlation' $WORKDIR/${PDBID}_0cyc.log | awk '{print $5}'`
+
+# Get the rough atom count
+set ONATOM = `grep -c -E '^[AH][TE][OT][MA]' $WORKDIR/${PDBID}_0cyc.pdb`
 
 # #Copy back the SEQRES records
 if (`grep -c '^SEQRES' $WORKDIR/${PDBID}_0cyc.pdb` == 0) then
@@ -4105,7 +4179,7 @@ if ($TWIN == 'test' && $PHASTWIN == 1) then
   #Set up detwinning
   set TWIN = 'twin'
 
-  refmac5 \
+  refmacat \
   XYZIN  $WORKDIR/${PDBID}_0cyc.pdb \
   XYZOUT $WORKDIR/${PDBID}_twin.pdb \
   HKLIN  $WORKDIR/$PDBID.mtz \
@@ -4203,14 +4277,36 @@ endif
 
 set PPATM = "4" #Assumes isotropic B-factors for now
 
+#Correct for too many reflections in EM due to larege boxes
+if ($ISEM == 1) then
+  #Get maximum and minimum coordinates
+  set XMIN = `$TOOLS/cif-grep -i _atom_site.Cartn_x . $PDBID.xyz.cif | sort -n | head -n 1`
+  set XMAX = `$TOOLS/cif-grep -i _atom_site.Cartn_x . $PDBID.xyz.cif | sort -n | tail -n 1`
+  set YMIN = `$TOOLS/cif-grep -i _atom_site.Cartn_y . $PDBID.xyz.cif | sort -n | head -n 1`
+  set YMAX = `$TOOLS/cif-grep -i _atom_site.Cartn_y . $PDBID.xyz.cif | sort -n | tail -n 1`
+  set ZMIN = `$TOOLS/cif-grep -i _atom_site.Cartn_z . $PDBID.xyz.cif | sort -n | head -n 1`
+  set ZMAX = `$TOOLS/cif-grep -i _atom_site.Cartn_z . $PDBID.xyz.cif | sort -n | tail -n 1`
+
+  #Calculate the ratio between the current box size and the minimal box size (assumes P 1 space group)
+  set BOXSCALE = `echo $AAXIS $BAXIS $CAXIS $XMIN $XMAX $YMIN $YMAX $ZMIN $ZMAX | awk '{printf ("%.3f\n", $1*$2*$3/(($5-$4)*($7-$6)*($9-$8)))}'`
+  
+  #Correct the number of reflections for downstream calculations (truncates number instead of rounding, but is fine fore large numbers)
+  set CNTSTCNT = `echo $NTSTCNT $BOXSCALE | awk '{printf ("%d\n", $1/$2)}'`
+  set CWORKCNT = `echo $WORKCNT $BOXSCALE | awk '{printf ("%d\n", $1/$2)}'`
+else
+  #No need to correct the number of reflections
+  set CNTSTCNT = $NTSTCNT
+  set CWORKCNT = $WORKCNT
+endif
+
 #Calculate sigma(R-free)
-set SIGRFCAL = `echo $RFCAL $NTSTCNT | awk '{printf ("%.4f\n", $1/sqrt($2))}'`
+set SIGRFCAL = `echo $RFCAL $CNTSTCNT | awk '{printf ("%.4f\n", $1/sqrt($2))}'`
 
 #Calculate expected R-free/R ratio (Ticke model and isotropic empirical model 2020)
-set RFRRAT2 = `echo $ATMCNT $WORKCNT $PPATM $URESO | awk '{X = $1/$2; Z = 1 - $3 * X/(1 + 2.5 * X); if (Z < 0) {Z = 0}; A = $3-2.5*(1-Z*Z*Z*Z*Z); X = A*X; RATIO = 1-X; if(RATIO <= 0) {RATIO = 1.010} else {RATIO = sqrt((1+X)/RATIO)};  if ($4 > 2.65 && RATIO > 1.200000) {RATIO = 1.200000}; if ($4 > 3.0 && RATIO < 1.011) {RATIO = 1.20}; if (RATIO > 1.454) {RATIO = 1.45}; printf ("%.4f\n", RATIO)}'`
-set RFRRAT  = `echo $ATMCNT $WORKCNT | awk '{printf ("%.4f\n", -0.005 * $2/$1 + 1.2286)}'`
-set SRFRRAT = `echo $ATMCNT $WORKCNT | awk '{printf ("%.4f\n", -0.024 * log($2/$1) + 0.1064)}'`
-set ZRFRRATCAL = `echo $ATMCNT $WORKCNT $RCAL $RFCAL | awk '{printf ("%.2f\n", (((-0.005 * $2/$1 + 1.2286) - $4/$3)/(-0.024 * log($2/$1) + 0.1064)))}'`
+set RFRRAT2 = `echo $ATMCNT $CWORKCNT $PPATM $URESO | awk '{X = $1/$2; Z = 1 - $3 * X/(1 + 2.5 * X); if (Z < 0) {Z = 0}; A = $3-2.5*(1-Z*Z*Z*Z*Z); X = A*X; RATIO = 1-X; if(RATIO <= 0) {RATIO = 1.010} else {RATIO = sqrt((1+X)/RATIO)};  if ($4 > 2.65 && RATIO > 1.200000) {RATIO = 1.200000}; if ($4 > 3.0 && RATIO < 1.011) {RATIO = 1.20}; if (RATIO > 1.454) {RATIO = 1.45}; printf ("%.4f\n", RATIO)}'`
+set RFRRAT  = `echo $ATMCNT $CWORKCNT | awk '{printf ("%.4f\n", -0.005 * $2/$1 + 1.2286)}'`
+set SRFRRAT = `echo $ATMCNT $CWORKCNT | awk '{printf ("%.4f\n", -0.024 * log($2/$1) + 0.1064)}'`
+set ZRFRRATCAL = `echo $ATMCNT $CWORKCNT $RCAL $RFCAL | awk '{printf ("%.2f\n", (((-0.005 * $2/$1 + 1.2286) - $4/$3)/(-0.024 * log($2/$1) + 0.1064)))}'`
 
 #Calculate expected R-free
 set RFCALUNB = `echo $RCAL $RFRRAT  | awk '{printf ("%.4f\n", $1*$2)}'`
@@ -4223,7 +4319,12 @@ set RFCALZ = `echo $RFCALUNB $RFCAL $SIGRFCAL | awk '{printf ("%.2f\n", ($1-$2)/
 #Print values
 echo " " | tee -a $LOG
 echo " " | tee -a $LOG
-echo "****** R-factor and R-free details ******" | tee -a $LOG
+echo "****** Model-to-data fit details ******" | tee -a $LOG
+if ($ISEM == 1) then
+  echo "Calculated FSC    : $FSCWCAL"  | tee -a $LOG
+  echo "Calculated FSCfree: $FSCFCAL"  | tee -a $LOG
+  echo " " | tee -a $LOG
+endif
 echo "Calculated R      : $RCAL"       | tee -a $LOG
 echo "Calculated R-free : $RFCAL"      | tee -a $LOG
 echo "Expected R-free/R : $RFRRAT (new)"   | tee -a $LOG
@@ -4386,7 +4487,7 @@ resobasedsettings:
 if ($STRICTNCS == 1 && $NMTRIX > 9) then
   set RESOTYPE = `echo $URESO | awk '{if ($1 > 4.99) {print "0"} else if ($1 > 3.49 && $1 < 5.00) {print "1"} else if ($1 > 2.79 && $1 < 3.50) {print "2"} else if ($1 < 1.21) {print "5"} else if ($1 > 1.20 && $1 < 1.71) {print "4"} else {print "3"}}'`
 else
-  set RESOTYPE = `echo $URESO $WORKCNT $ATMCNT | awk '{if ($1 > 4.99) {print "0"} else if ($2/$3 < 1.0) {print "0"} else if ($1 > 3.49 && $1 < 5.00) {print "1"} else if ($2/$3 < 2.5) {print "1"} else if ($1 > 2.79 && $1 < 3.50) {print "2"} else if ($1 < 1.21) {print "5"} else if ($1 > 1.20 && $1 < 1.71) {print "4"} else {print "3"}}'`
+  set RESOTYPE = `echo $URESO $CWORKCNT $ATMCNT | awk '{if ($1 > 4.99) {print "0"} else if ($2/$3 < 1.0) {print "0"} else if ($1 > 3.49 && $1 < 5.00) {print "1"} else if ($2/$3 < 2.5) {print "1"} else if ($1 > 2.79 && $1 < 3.50) {print "2"} else if ($1 < 1.21) {print "5"} else if ($1 > 1.20 && $1 < 1.71) {print "4"} else {print "3"}}'`
 endif
 
 #Modify the resolution category based on user input and experiment type
@@ -4399,7 +4500,11 @@ endif
 if ($RESOTYPE < 1) then
   set WEIGHTS    = "1e-7 1e-6 1e-5 1e-4 5e-4 .001"
   set BWEIGHTS   = "2.50 2.00 1.50 1.20 1.00"  #Do not try looser B-factor restraints
-  set JELLY      = "ridg dist sigm 0.02"       #Use jelly-body refinement
+  if ($ISEM == 1) then #Use jelly-body refinement
+    set JELLY      = "ridg dist sigm 0.01"    
+  else
+    set JELLY      = "ridg dist sigm 0.02"    
+  endif	  
   @ NCYCLE = ($NCYCLE + 15)
   set TORSION    = "restr tors include group peptide"
   set ESTRICT    = "-e"                        #Picker is extra strict
@@ -4410,7 +4515,11 @@ if ($RESOTYPE < 1) then
 else if ($RESOTYPE == 1) then
   set WEIGHTS  = "1e-4 5e-4 .001 .002 .005 0.01"
   set BWEIGHTS = "2.00 1.50 1.20 1.00 0.80 0.50"
-  set JELLY    = "ridg dist sigm 0.05" #Use jelly-body refinement
+  if ($ISEM == 1) then #Use jelly-body refinement
+    set JELLY      = "ridg dist sigm 0.02"
+  else
+    set JELLY      = "ridg dist sigm 0.05"
+  endif  
   @ NCYCLE = ($NCYCLE + 10)
   set ESTRICT  = "-e"                  #Picker is extra strict
   #Use homology restraints
@@ -4420,7 +4529,11 @@ else if ($RESOTYPE == 1) then
 else if ($RESOTYPE == 2) then
   set WEIGHTS  = ".001 .002 .005 0.01 0.03 0.05"
   set BWEIGHTS = "1.50 1.20 1.00 0.80 0.50 0.30"
-  set JELLY    = "ridg dist sigm 0.10" #Use jelly-body refinement (with looser restraints)
+  if ($ISEM == 1) then #Use jelly-body refinement
+    set JELLY      = "ridg dist sigm 0.05"
+  else
+    set JELLY      = "ridg dist sigm 0.10"
+  endif
   @ NCYCLE = ($NCYCLE + 5)
   #Use homology restraints
   if (-e $WORKDIR/$PDBID.fasta) then
@@ -4429,6 +4542,9 @@ else if ($RESOTYPE == 2) then
 else if ($RESOTYPE == 3) then
   set WEIGHTS  = ".005 0.01 0.03 0.05 0.10 0.30 0.50"
   set BWEIGHTS = "1.50 1.20 1.00 0.80 0.50 0.30 0.10"
+  if ($ISEM == 1) then
+    set JELLY      = "ridg dist sigm 0.10"
+  endif	  
 else if ($RESOTYPE == 4) then
   set WEIGHTS  = "0.05 0.10 0.30 0.50 0.70 1.00 1.50"
   set BWEIGHTS = "1.50 1.20 1.00 0.80 0.50 0.30 0.10"
@@ -4534,7 +4650,7 @@ if ($GOT_NUC == 'T' || $HBONDREST == 1 || $DOHOMOLOGY == 1) then
   #Generate a DSSP file
   if ($HBONDREST == 1 || $DOHOMOLOGY == 1) then
     #Define the secondary structure
-    mkdssp -i $WORKDIR/${PDBID}_0cyc.pdb -o $WORKDIR/${PDBID}_0cyc.dssp >& $WORKDIR/dssp.log
+    $TOOLS/mkdssp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_0cyc.dssp >& $WORKDIR/dssp.log
 
     if ( ! -e $WORKDIR/${PDBID}_0cyc.dssp) then
       #DSSP failed. Cannot make restraints
@@ -4656,7 +4772,7 @@ solventtest:
 #Run Refmac
 echo "-Running Refmac grid search" | tee -a $LOG
 
-refmac5 \
+refmacat \
 XYZIN  $WORKDIR/${PDBID}_0cyc.pdb \
 XYZOUT $WORKDIR/${PDBID}_solvent.pdb \
 HKLIN  $WORKDIR/$PDBID.mtz \
@@ -4814,7 +4930,7 @@ if ( ($RESOGAP == 1 || $FORCEPAIRED == 1) && $RESOCHECK == 1) then
     set REFIRES = "RESO $RESCO"
 
     #Refine against data
-    refmac5 \
+    refmacat \
     XYZIN  $WORKDIR/${PDBID}_0cyc.pdb \
     XYZOUT $WORKDIR/${PDBID}_res$RESCO.pdb \
     HKLIN  $WORKDIR/$PDBID.mtz \
@@ -4877,7 +4993,7 @@ eof
     set TESTRES = "RESO $RESLOWER"
 
     #Run Refmac 0-cycles
-    refmac5 \
+    refmacat \
     XYZIN  $WORKDIR/${PDBID}_res$RESCO.pdb \
     XYZOUT $WORKDIR/${PDBID}_restest_0cyc.pdb \
     HKLIN  $WORKDIR/$PDBID.mtz \
@@ -4964,7 +5080,7 @@ eof
     endif
 
     #Prepare for next cycle get R(-free) from 0 cycles
-    refmac5 \
+    refmacat \
     XYZIN  $WORKDIR/${PDBID}_res$RESCO.pdb \
     XYZOUT $WORKDIR/${PDBID}_restest_0cyc.pdb \
     HKLIN  $WORKDIR/$PDBID.mtz \
@@ -5100,20 +5216,20 @@ if ($STRICTNCS == 1 && $NMTRIX > 9) then
   set BREFTYPE     = "ISOT"
 else if ($BISOT == 1) then  
   #Force isotropic B-factors, within reason
-  set BREFTYPE = `echo $WORKCNT $ATMCNT | awk '{if ($1/$2 > 30.0) {print "ANISOT"} else {print "ISOT"}}'`
+  set BREFTYPE = `echo $CWORKCNT $ATMCNT | awk '{if ($1/$2 > 30.0) {print "ANISOT"} else {print "ISOT"}}'`
 else if ($FISOT == 1) then  
   #Force isotropic B-factors, outside reason
   set BREFTYPE = "ISOT"
 else if ($BANISOT == 1) then
   #Force anisotropic B-factors, within reason
-  set BREFTYPE = `echo $URESO $WORKCNT $ATMCNT | awk '{if ($1 > 1.94) {print "ISOT"} else if ($2/$3 > 13.0) {print "ANISOT"} else {print "ISOT"}}'`
+  set BREFTYPE = `echo $URESO $CWORKCNT $ATMCNT | awk '{if ($1 > 1.94) {print "ISOT"} else if ($2/$3 > 13.0) {print "ANISOT"} else {print "ISOT"}}'`
 else
    #Use the Hamilton test if needed
-  set BREFTYPE = `echo $URESO $WORKCNT $ATMCNT | awk '{if ($1 > 1.94) {print "ISOT"} else if ($2/$3 > 30.0) {print "ANISOT"} else if ($2/$3 > 13.0) {print "TEST"} else {print "ISOT"}}'`
+  set BREFTYPE = `echo $URESO $CWORKCNT $ATMCNT | awk '{if ($1 > 1.94) {print "ISOT"} else if ($2/$3 > 30.0) {print "ANISOT"} else if ($2/$3 > 13.0) {print "TEST"} else {print "ISOT"}}'`
 endif
 
 
-set REFPATM  = `echo $WORKCNT $ATMCNT | awk '{printf ("%.1f\n", $1/$2)}'`
+set REFPATM  = `echo $CWORKCNT $ATMCNT | awk '{printf ("%.1f\n", $1/$2)}'`
 
 #Test the best B-factor restraint type
 if ($BREFTYPE == TEST) then
@@ -5134,7 +5250,7 @@ anisooriso:
 
       echo "-Testing ${TYPETEST}ropic B-factors" | tee -a $LOG
 
-      refmac5 \
+      refmacat \
       XYZIN  $WORKDIR/${PDBID}_0cyc.pdb \
       XYZOUT $WORKDIR/${PDBID}_${TYPETEST}ropic.pdb \
       HKLIN  $WORKDIR/$PDBID.mtz \
@@ -5212,7 +5328,7 @@ eof
   #Compare refinement results and decide on the B-factor type. PROGRAM: bselect
   cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.bselect.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
   
-  $TOOLS/bselect -v $WORKDIR/${PDBID}_ANISOTropic.log $WORKDIR/${PDBID}_ISOTropic.log > $WORKDIR/bselect.log 
+  $TOOLS/bselect -v $WORKDIR/${PDBID}_ANISOTropic.log $WORKDIR/${PDBID}_ISOTropic.log $ONATOM > $WORKDIR/bselect.log 
   set BREFTYPE = `tail -n 1 $WORKDIR/bselect.log`
   
   #Report on the individual tests
@@ -5290,6 +5406,9 @@ echo "****** Refinement settings ******" | tee -a $LOG
 echo "-B-factor model" | tee -a $LOG
 echo " o Number of atoms      : $ATMCNT"  | tee -a $LOG
 echo " o Number of reflections: $WORKCNT" | tee -a $LOG
+if ($ISEM == 1) then
+  echo "   * After correction   : $CWORKCNT" | tee -a $LOG 
+endif
 echo " o Reflections per atom : $REFPATM" | tee -a $LOG
 echo " o B-factor type        : ${BREFTYPE}ropic" | tee -a $LOG
 if ($DOTLS == 0) then
@@ -5443,22 +5562,22 @@ endif
 #Update the R(-free) statistics if the data/parameter ratio changed
 if ($BREFTYPE == "ANISOT" || $URESO != $RESOLUTION) then
   #Calculate sigma(R-free)
-  set SIGRFCAL = `echo $RFCAL $NTSTCNT | awk '{printf ("%.4f\n", $1/sqrt($2))}'`
+  set SIGRFCAL = `echo $RFCAL $CNTSTCNT | awk '{printf ("%.4f\n", $1/sqrt($2))}'`
   
   #B-factor model can be isotropic or anisotropic  
   if ($BREFTYPE == "ANISOT") then
     set PPATM = 9 #Anisotropic B-factors now
     #Calculate expected R-free/R ratio (Ticke model and anisotropic empirical model 2020)
-    set RFRRAT2    = `echo $ATMCNT $WORKCNT $PPATM $URESO | awk '{X = $1/$2; Z = 1 - $3 * X/(1 + 2.5 * X); if (Z < 0) {Z = 0}; A = $3-2.5*(1-Z*Z*Z*Z*Z); X = A*X; RATIO = 1-X; if(RATIO <= 0) {RATIO = 1.010} else {RATIO = sqrt((1+X)/RATIO)};  if ($4 > 2.65 && RATIO > 1.200000) {RATIO = 1.200000}; if ($4 > 3.0 && RATIO < 1.011) {RATIO = 1.20}; if (RATIO > 1.454) {RATIO = 1.45}; printf ("%.4f\n", RATIO)}'`
-    set RFRRAT     = `echo $ATMCNT $WORKCNT | awk '{printf ("%.4f\n", -0.14 * log($2/$1) + 1.6674)}'`
-    set SRFRRAT    = `echo $ATMCNT $WORKCNT | awk '{printf ("%.4f\n", -0.018 * log($2/$1) + 0.0979)}'`
-    set ZRFRRATCAL = `echo $ATMCNT $WORKCNT $RCAL $RFCAL | awk '{printf ("%.2f\n", (((-0.0046 * $2/$1 + 1.3375) - $4/$3)/(-0.018 * log($2/$1) + 0.0979)))}'`
+    set RFRRAT2    = `echo $ATMCNT $CWORKCNT $PPATM $URESO | awk '{X = $1/$2; Z = 1 - $3 * X/(1 + 2.5 * X); if (Z < 0) {Z = 0}; A = $3-2.5*(1-Z*Z*Z*Z*Z); X = A*X; RATIO = 1-X; if(RATIO <= 0) {RATIO = 1.010} else {RATIO = sqrt((1+X)/RATIO)};  if ($4 > 2.65 && RATIO > 1.200000) {RATIO = 1.200000}; if ($4 > 3.0 && RATIO < 1.011) {RATIO = 1.20}; if (RATIO > 1.454) {RATIO = 1.45}; printf ("%.4f\n", RATIO)}'`
+    set RFRRAT     = `echo $ATMCNT $CWORKCNT | awk '{printf ("%.4f\n", -0.14 * log($2/$1) + 1.6674)}'`
+    set SRFRRAT    = `echo $ATMCNT $CWORKCNT | awk '{printf ("%.4f\n", -0.018 * log($2/$1) + 0.0979)}'`
+    set ZRFRRATCAL = `echo $ATMCNT $CWORKCNT $RCAL $RFCAL | awk '{printf ("%.2f\n", (((-0.0046 * $2/$1 + 1.3375) - $4/$3)/(-0.018 * log($2/$1) + 0.0979)))}'`
   else  
     #Calculate expected R-free/R ratio (Ticke model and isotropic empirical model 2020)
-    set RFRRAT2    = `echo $ATMCNT $WORKCNT $PPATM $URESO | awk '{X = $1/$2; Z = 1 - $3 * X/(1 + 2.5 * X); if (Z < 0) {Z = 0}; A = $3-2.5*(1-Z*Z*Z*Z*Z); X = A*X; RATIO = 1-X; if(RATIO <= 0) {RATIO = 1.010} else {RATIO = sqrt((1+X)/RATIO)};  if ($4 > 2.65 && RATIO > 1.200000) {RATIO = 1.200000}; if ($4 > 3.0 && RATIO < 1.011) {RATIO = 1.20}; if (RATIO > 1.454) {RATIO = 1.45}; printf ("%.4f\n", RATIO)}'`
-    set RFRRAT     = `echo $ATMCNT $WORKCNT | awk '{printf ("%.4f\n", -0.005 * $2/$1 + 1.2286)}'`
-    set SRFRRAT    = `echo $ATMCNT $WORKCNT | awk '{printf ("%.4f\n", -0.024 * log($2/$1) + 0.1064)}'`
-    set ZRFRRATCAL = `echo $ATMCNT $WORKCNT $RCAL $RFCAL | awk '{printf ("%.2f\n", (((-0.005 * $2/$1 + 1.2286) - $4/$3)/(-0.024 * log($2/$1) + 0.1064)))}'`
+    set RFRRAT2    = `echo $ATMCNT $CWORKCNT $PPATM $URESO | awk '{X = $1/$2; Z = 1 - $3 * X/(1 + 2.5 * X); if (Z < 0) {Z = 0}; A = $3-2.5*(1-Z*Z*Z*Z*Z); X = A*X; RATIO = 1-X; if(RATIO <= 0) {RATIO = 1.010} else {RATIO = sqrt((1+X)/RATIO)};  if ($4 > 2.65 && RATIO > 1.200000) {RATIO = 1.200000}; if ($4 > 3.0 && RATIO < 1.011) {RATIO = 1.20}; if (RATIO > 1.454) {RATIO = 1.45}; printf ("%.4f\n", RATIO)}'`
+    set RFRRAT     = `echo $ATMCNT $CWORKCNT | awk '{printf ("%.4f\n", -0.005 * $2/$1 + 1.2286)}'`
+    set SRFRRAT    = `echo $ATMCNT $CWORKCNT | awk '{printf ("%.4f\n", -0.024 * log($2/$1) + 0.1064)}'`
+    set ZRFRRATCAL = `echo $ATMCNT $CWORKCNT $RCAL $RFCAL | awk '{printf ("%.2f\n", (((-0.005 * $2/$1 + 1.2286) - $4/$3)/(-0.024 * log($2/$1) + 0.1064)))}'`
   endif
   
   #Calculate expected R-free
@@ -5470,7 +5589,12 @@ if ($BREFTYPE == "ANISOT" || $URESO != $RESOLUTION) then
   #Print values
   echo " " | tee -a $LOG
   echo " " | tee -a $LOG
-  echo "****** R-factor and R-free details (updated) ******" | tee -a $LOG
+  echo "****** Model-to-data fit details (updated) ******" | tee -a $LOG
+  if ($ISEM == 1) then
+    echo "Calculated FSC    : $FSCWCAL"  | tee -a $LOG
+    echo "Calculated FSCfree: $FSCFCAL"  | tee -a $LOG
+    echo " " | tee -a $LOG
+  endif
   echo "Calculated R      : $RCAL"       | tee -a $LOG
   echo "Calculated R-free : $RFCAL"      | tee -a $LOG
   echo "Expected R-free/R : $RFRRAT (new)"  | tee -a $LOG
@@ -5512,7 +5636,7 @@ ttestrunning:
       if (`cat $WORKDIR/jobs.log | wc -l` < $NPROC) then
 
         #Run refmac
-        refmac5 \
+        refmacat \
         XYZIN  $WORKDIR/${PDBID}_0cyc.pdb \
         XYZOUT $WORKDIR/${PDBID}_ttest$TLSG.pdb \
         HKLIN  $WORKDIR/$PDBID.mtz \
@@ -5632,12 +5756,12 @@ eof
       end
 
       #Pick the best TLS group configuration. PROGRAM: picker
-      set OPTTLSG = `$TOOLS/picker -z $WORKDIR/${PDBID}.ttest $NTSTCNT $RFRRAT $SRFRRAT` #The geometry is ignored here
+      set OPTTLSG = `$TOOLS/picker -z $WORKDIR/${PDBID}.ttest $CNTSTCNT $RFRRAT $SRFRRAT` #The geometry is ignored here
       
       #Also pick second best TLS group.
       if (`ls -Sr ????.tls | wc -l` != 1) then
         grep -v $OPTTLSG $WORKDIR/${PDBID}.ttest > $WORKDIR/${PDBID}.ttest2
-        set OPTTLSG2 = `$TOOLS/picker -z $WORKDIR/${PDBID}.ttest2 $NTSTCNT $RFRRAT $SRFRRAT`
+        set OPTTLSG2 = `$TOOLS/picker -z $WORKDIR/${PDBID}.ttest2 $CNTSTCNT $RFRRAT $SRFRRAT`
       else
         set OPTTLSG2 = 'none'
       endif
@@ -5737,7 +5861,7 @@ tmoderunning:
           if (`cat $WORKDIR/jobs.log | wc -l` < $NPROC) then
 
             #Run refmac
-            refmac5 \
+            refmacat \
             XYZIN  $WORKDIR/${PDBID}_0cyc.pdb \
             XYZOUT $WORKDIR/${PDBID}_tmode$TMODE.pdb \
             HKLIN  $WORKDIR/$PDBID.mtz \
@@ -5807,7 +5931,7 @@ eof
           set LINE = `tail -n $LOGSTEP $WORKDIR/${PDBID}_tmode$TMODE.log | head -n 1`
           echo "$TMODE $LINE" >> $WORKDIR/${PDBID}.tmode
         end
-        set BTMODE = `$TOOLS/picker -f $WORKDIR/${PDBID}.tmode $NTSTCNT $RFRRAT $SRFRRAT $RMSZB $RMSZA`
+        set BTMODE = `$TOOLS/picker -f $WORKDIR/${PDBID}.tmode $CNTSTCNT $RFRRAT $SRFRRAT $RMSZB $RMSZA`
     
         # make the call
         if ($BTMODE == TLSY) then
@@ -5853,7 +5977,7 @@ endif
 if ( ($STRICTNCS == 1 && $NMTRIX > 9) || $BISOT == 1) then
   set BTYPE = "ISOT"
 else
-  set BTYPE = `echo $WORKCNT $ATMCNT | awk '{if ($1/$2 < 4) {print "TEST"} else {print "ISOT"}}'`
+  set BTYPE = `echo $CWORKCNT $ATMCNT | awk '{if ($1/$2 < 4) {print "TEST"} else {print "ISOT"}}'`
 endif
 
 #Test the best B-factor restraint type
@@ -5890,7 +6014,7 @@ isoorover:
         echo "-Testing one overall B-factor" | tee -a $LOG
       endif
 
-      refmac5 \
+      refmacat \
       XYZIN  $WORKDIR/${PDBID}_refin.pdb \
       XYZOUT $WORKDIR/${PDBID}_${TYPETEST}.pdb \
       HKLIN  $WORKDIR/$PDBID.mtz \
@@ -5970,7 +6094,7 @@ eof
   #Compare refinement results and decide on the B-factor type
   cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.bselect.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
   
-  $TOOLS/bselect -v $WORKDIR/${PDBID}_ISOT.log $WORKDIR/${PDBID}_OVER.log > $WORKDIR/bselect.log 
+  $TOOLS/bselect -v $WORKDIR/${PDBID}_ISOT.log $WORKDIR/${PDBID}_OVER.log $ONATOM > $WORKDIR/bselect.log 
   set BREFTYPE = `tail -n 1 $WORKDIR/bselect.log`
   
   #Report on the individual tests
@@ -6027,7 +6151,7 @@ eof
     set PPATM = "3"
 
     #Calculate sigma(R-free)
-    set SIGRFCAL = `echo $RFCAL $NTSTCNT | awk '{printf ("%.4f\n", $1/sqrt($2))}'`
+    set SIGRFCAL = `echo $RFCAL $CNTSTCNT | awk '{printf ("%.4f\n", $1/sqrt($2))}'`
     
     #Set all B-factors to a single value if no TLS is used
     if ($DOTLS == 0) then
@@ -6035,7 +6159,7 @@ eof
     endif
 
     #Re-calculate R-free/R ratio
-    set RFRRAT2    = `echo $ATMCNT $WORKCNT $PPATM $URESO | awk '{X = $1/$2; Z = 1 - $3 * X/(1 + 2.5 * X); if (Z < 0) {Z = 0}; A = $3-2.5*(1-Z*Z*Z*Z*Z); X = A*X; RATIO = 1-X; if(RATIO <= 0) {RATIO = 1.010} else {RATIO = sqrt((1+X)/RATIO)};  if ($4 > 2.65 && RATIO > 1.200000) {RATIO = 1.200000}; if ($4 > 3.0 && RATIO < 1.011) {RATIO = 1.20}; if (RATIO > 1.454) {RATIO = 1.45}; printf ("%.4f\n", RATIO)}'`
+    set RFRRAT2    = `echo $ATMCNT $CWORKCNT $PPATM $URESO | awk '{X = $1/$2; Z = 1 - $3 * X/(1 + 2.5 * X); if (Z < 0) {Z = 0}; A = $3-2.5*(1-Z*Z*Z*Z*Z); X = A*X; RATIO = 1-X; if(RATIO <= 0) {RATIO = 1.010} else {RATIO = sqrt((1+X)/RATIO)};  if ($4 > 2.65 && RATIO > 1.200000) {RATIO = 1.200000}; if ($4 > 3.0 && RATIO < 1.011) {RATIO = 1.20}; if (RATIO > 1.454) {RATIO = 1.45}; printf ("%.4f\n", RATIO)}'`
     set RFRRAT     = 1.1700 #Simple flat model due to limited data
     set SRFRRAT    = 0.0850 #Simple flat model due to limited data
     set ZRFRRATCAL = `echo $RCAL $RFCAL | awk '{printf ("%.2f\n", (1.1170 - ($2/$1))/0.0850)}'`
@@ -6049,7 +6173,12 @@ eof
     #Print values
     echo " " | tee -a $LOG
     echo " " | tee -a $LOG
-    echo "****** R-factor and R-free details (updated) ******" | tee -a $LOG
+    echo "****** Model-to-data fit details (updated) ******" | tee -a $LOG
+    if ($ISEM == 1) then
+      echo "Calculated FSC    : $FSCWCAL"  | tee -a $LOG
+      echo "Calculated FSCfree: $FSCFCAL"  | tee -a $LOG
+      echo " " | tee -a $LOG
+    endif
     echo "Calculated R      : $RCAL"       | tee -a $LOG
     echo "Calculated R-free : $RFCAL"      | tee -a $LOG
     echo "Expected R-free/R : $RFRRAT (new)"  | tee -a $LOG
@@ -6088,7 +6217,7 @@ bwgtrunning:
     if (`cat $WORKDIR/jobs.log | wc -l` < $NPROC) then
 
       #Run Refmac. Errors are caught later by checking the output.
-      refmac5 \
+      refmacat \
       XYZIN  $WORKDIR/${PDBID}_refin.pdb \
       XYZOUT $WORKDIR/${PDBID}_btest$BWGT.pdb \
       HKLIN  $WORKDIR/$PDBID.mtz \
@@ -6188,7 +6317,7 @@ eof
   end
 
   #Pick the best weight. If no weight is found 'none' is returned and the re-refinement runs with default settings.
-  set BBEST = `$TOOLS/picker -s $ESTRICT $WORKDIR/${PDBID}.btest $NTSTCNT $RFRRAT $SRFRRAT $RMSZB $RMSZA`
+  set BBEST = `$TOOLS/picker -s $ESTRICT $WORKDIR/${PDBID}.btest $CNTSTCNT $RFRRAT $SRFRRAT $RMSZB $RMSZA`
 
   #Print values
   echo " o Best B weight: $BBEST" | tee -a $LOG
@@ -6216,7 +6345,7 @@ refirunning:
 
   if (`cat $WORKDIR/jobs.log | wc -l` < $NPROC) then
 
-    refmac5 \
+    refmacat \
     XYZIN  $WORKDIR/${PDBID}_refin.pdb \
     XYZOUT $WORKDIR/${PDBID}_refmac${WGT}.pdb \
     HKLIN  $WORKDIR/$PDBID.mtz \
@@ -6308,7 +6437,7 @@ echo "-Selecting best geometric restraint weight" | tee -a $LOG
 #No known errors in the refinement
 set TLSERR  = 0
 
-#Create second .refi file
+#Create .refi file
 if ($GOTR == 0 || $ZCALERR == 1) then
   echo "$RCAL $RFCALUNB" > $WORKDIR/${PDBID}.refi
 else
@@ -6325,13 +6454,15 @@ foreach WGT (`echo $WEIGHTS`)
 end
 
 #Pick the best re-refined structure
-set TLSBEST = `$TOOLS/picker $NEWMODEL $ESTRICT $WORKDIR/${PDBID}.refi $NTSTCNT $RFRRAT $SRFRRAT $RMSZB $RMSZA`
+set TLSBEST = `$TOOLS/picker $NEWMODEL $ESTRICT $WORKDIR/${PDBID}.refi $CNTSTCNT $RFRRAT $SRFRRAT $RMSZB $RMSZA`
 
 if ($TLSBEST == none) then
 
-  #Set R(-free)
+  #Set R(-free) and FSC
   set RTLS  = $RCAL
   set RFTLS = $RFCAL
+  set FSCWTLS = $FSCWCAL
+  set FSCFTLS = $FSCFCAL
 
   #Copy files
   cp $WORKDIR/${PDBID}_refin.pdb $WORKDIR/${PDBID}_besttls.pdb
@@ -6348,6 +6479,10 @@ if ($TLSBEST == none) then
   set RFTLSUNB   = 'NA'
   set RFTLSZ     = 'NA'
   set ZRFRRATTLS = 'NA'
+ 
+  #No need to update rmsZ values for bonds and angles 
+  set NBRMSZ = $OBRMSZ
+  set NARMSZ = $OARMSZ
 
 else
 
@@ -6356,21 +6491,29 @@ else
   cp $WORKDIR/${PDBID}_refmac${TLSBEST}.mtz $WORKDIR/${PDBID}_besttls.mtz
   cp $WORKDIR/${PDBID}_${TLSBEST}.log $WORKDIR/${PDBID}_besttls.log
 
-  #Set R(-free)
+  #Set R(-free) and FSC
   set RTLS  = `tail -n $LOGSTEP $WORKDIR/${PDBID}_besttls.log | head -n 1 | awk '{print $2}'`
   set RFTLS = `tail -n $LOGSTEP $WORKDIR/${PDBID}_besttls.log | head -n 1 | awk '{print $3}'`
+  set FSCWTLS = `grep 'Average Fourier shell correlation' $WORKDIR/${PDBID}_besttls.log     | tail -n 1 | awk '{print $6}'`
+  set FSCFTLS = `grep 'AverageFree Fourier shell correlation' $WORKDIR/${PDBID}_besttls.log | tail -n 1 | awk '{print $5}'`
 
   #Validate R-free and R-free/R
-  set SIGRFTLS   = `echo $RFTLS $NTSTCNT | awk '{printf ("%.4f\n", $1/sqrt($2))}'`
+  set SIGRFTLS   = `echo $RFTLS $CNTSTCNT | awk '{printf ("%.4f\n", $1/sqrt($2))}'`
   set RFTLSUNB   = `echo $RTLS $RFRRAT   | awk '{printf ("%.4f\n", $1*$2)}'`
   set ZRFRRATTLS = `echo $RFRRAT $SRFRRAT $RTLS $RFTLS | awk '{printf ("%.2f\n", ($1-($4/$3))/$2)}'`
   set RFTLSZ     = `echo $RFTLSUNB $RFTLS $SIGRFTLS | awk '{printf ("%.2f\n", ($1-$2)/$3)}'`
   
-  #Update RMSZ targets if they were higher than 1.00 before
+  #Get RMSZ values and reset targets if they were higher than 1.00 before
   if (`echo $RMSZB $RMSZA | awk '{if ($1 > 1.000) {print "1"} else if ($2 > 1.000) {print "1"} else {print "0"}}'` == 1) then
-    set RMSZB = `tail -n $LOGSTEP $WORKDIR/${PDBID}_besttls.log | head -n 1 | sed 's/\*\*\*\*\*\*/huge/g' | awk '{print $8}'`
-    set RMSZA = `tail -n $LOGSTEP $WORKDIR/${PDBID}_besttls.log | head -n 1 | sed 's/\*\*\*\*\*\*/huge/g' | awk '{print $10}'`
+    set RMSZB  = `tail -n $LOGSTEP $WORKDIR/${PDBID}_besttls.log | head -n 1 | sed 's/\*\*\*\*\*\*/huge/g' | awk '{print $8}'`
+    set RMSZA  = `tail -n $LOGSTEP $WORKDIR/${PDBID}_besttls.log | head -n 1 | sed 's/\*\*\*\*\*\*/huge/g' | awk '{print $10}'`
+    set NBRMSZ = $RMSZB
+    set NARMSZ = $RMSZA
+  else  
+    set NBRMSZ = `tail -n $LOGSTEP $WORKDIR/${PDBID}_besttls.log | head -n 1 | sed 's/\*\*\*\*\*\*/huge/g' | awk '{print $8}'`
+    set NARMSZ = `tail -n $LOGSTEP $WORKDIR/${PDBID}_besttls.log | head -n 1 | sed 's/\*\*\*\*\*\*/huge/g' | awk '{print $10}'`
   endif
+  
 
 endif
 #Print values
@@ -6380,6 +6523,11 @@ echo " " | tee -a $LOG
 echo " " | tee -a $LOG
 echo "****** Re-refinement details ******" | tee -a $LOG
 echo "Best matrix weight: $TLSBEST" | tee -a $LOG
+if ($ISEM == 1) then
+  echo "Resulting FSC     : $FSCWTLS"  | tee -a $LOG
+  echo "Resulting FSCfree : $FSCFTLS"  | tee -a $LOG
+  echo " " | tee -a $LOG
+endif
 echo "Resulting R-factor: $RTLS"    | tee -a $LOG
 echo "Resulting R-free  : $RFTLS"   | tee -a $LOG
 echo "R-free/R Z-score  : $ZRFRRATTLS" | tee -a $LOG
@@ -6576,16 +6724,16 @@ if (-e $PDBOUT) then
   else
     set OBCONF = `grep -a 'Backbone conformation          :' $PDBOUT | head -n 1 | cut -c 36-42`
   endif
-  if (`grep -a -c 'Bond lengths                   :' $PDBOUT` == 0) then
-    set OBRMSZ = 'NA'
-  else
-    set OBRMSZ = `grep -a 'Bond lengths                   :' $PDBOUT | head -n 1 | cut -c 36-42`
-  endif
-  if (`grep -a -c 'Bond angles                    :' $PDBOUT` == 0) then
-    set OARMSZ = 'NA'
-  else
-    set OARMSZ = `grep -a 'Bond angles                    :' $PDBOUT | head -n 1 | cut -c 36-42`
-  endif
+#   if (`grep -a -c 'Bond lengths                   :' $PDBOUT` == 0) then
+#     set OBRMSZ = 'NA'
+#   else
+#     set OBRMSZ = `grep -a 'Bond lengths                   :' $PDBOUT | head -n 1 | cut -c 36-42`
+#   endif
+#   if (`grep -a -c 'Bond angles                    :' $PDBOUT` == 0) then
+#     set OARMSZ = 'NA'
+#   else
+#     set OARMSZ = `grep -a 'Bond angles                    :' $PDBOUT | head -n 1 | cut -c 36-42`
+#   endif
   #Get bump scores
   if (`grep -a -c 'Total number of bumps:' $PDBOUT` == 0) then
     set OBUMPS = 0
@@ -6629,8 +6777,8 @@ else
   set OZRAMA = 'NA'
   set OCHI12 = 'NA'
   set OBCONF = 'NA'
-  set OBRMSZ = 'NA'
-  set OARMSZ = 'NA'
+#   set OBRMSZ = 'NA'
+#   set OARMSZ = 'NA'
   set OBUMPS = 'NA'
   set OWBMPS = 'NA'
   set OHBUNS = 'NA'
@@ -6666,16 +6814,16 @@ if (-e $WORKDIR/wc/pdbout.txt) then
   else
     set NBCONF = `grep -a 'Backbone conformation          :' $WORKDIR/wc/pdbout.txt | head -n 1 | cut -c 36-42`
   endif
-  if (`grep -a -c 'Bond lengths                   :' $WORKDIR/wc/pdbout.txt` == 0) then
-    set NBRMSZ = 'NA'
-  else
-    set NBRMSZ = `grep -a 'Bond lengths                   :' $WORKDIR/wc/pdbout.txt | head -n 1 | cut -c 36-42`
-  endif
-  if (`grep -a -c 'Bond angles                    :' $WORKDIR/wc/pdbout.txt` == 0) then
-    set NARMSZ = 'NA'
-  else
-    set NARMSZ = `grep -a 'Bond angles                    :' $WORKDIR/wc/pdbout.txt | head -n 1 | cut -c 36-42`
-  endif
+#   if (`grep -a -c 'Bond lengths                   :' $WORKDIR/wc/pdbout.txt` == 0) then
+#     set NBRMSZ = 'NA'
+#   else
+#     set NBRMSZ = `grep -a 'Bond lengths                   :' $WORKDIR/wc/pdbout.txt | head -n 1 | cut -c 36-42`
+#   endif
+#   if (`grep -a -c 'Bond angles                    :' $WORKDIR/wc/pdbout.txt` == 0) then
+#     set NARMSZ = 'NA'
+#   else
+#     set NARMSZ = `grep -a 'Bond angles                    :' $WORKDIR/wc/pdbout.txt | head -n 1 | cut -c 36-42`
+#   endif
   #Get bump scores
   if (`grep -a -c 'Total number of bumps:' $WORKDIR/wc/pdbout.txt` == 0) then
     set NBUMPS = 0
@@ -6719,8 +6867,8 @@ else
   set NZRAMA = 'NA'
   set NCHI12 = 'NA'
   set NBCONF = 'NA'
-  set NBRMSZ = 'NA'
-  set NARMSZ = 'NA'
+#   set NBRMSZ = 'NA'
+#   set NARMSZ = 'NA'
   set NBUMPS = 'NA'
   set NWBMPS = 'NA'
   set NHBUNS = 'NA'
@@ -7030,7 +7178,7 @@ else
       echo "   * Updating atomic B-factors and density map" | tee -a $LOG
       
       #Run Refmac 5 cycles to update B-factors
-      refmac5 \
+      refmacat \
       XYZIN  $WORKDIR/homol/${PDBID}_loopwhole.pdb \
       XYZOUT $WORKDIR/homol/${PDBID}_loopwhole_ref.pdb \
       HKLIN  $WORKDIR/$PDBID.mtz \
@@ -7098,7 +7246,7 @@ eof
       echo " o Updating maps from new model" | tee -a $LOG
       
       #Run Refmac 0cyc to update the maps
-      refmac5 \
+      refmacat \
       XYZIN  $WORKDIR/homol/${PDBID}_loopwhole-validate.pdb \
       XYZOUT $WORKDIR/homol/${PDBID}_loopwhole_0cyc.pdb \
       HKLIN  $WORKDIR/$PDBID.mtz \
@@ -7167,7 +7315,7 @@ eof
   #Run dssp to find secondary structure elements
   if ($GOT_PROT == T) then
     echo "-Assigning secondary structure with DSSP" | tee -a $LOG
-    mkdssp $WORKDIR/${PDBID}_loopwhole.pdb $WORKDIR/$PDBID.dssp >& $WORKDIR/dssp.log
+    $TOOLS/mkdssp $WORKDIR/${PDBID}_loopwhole.pdb $WORKDIR/$PDBID.dssp >& $WORKDIR/dssp.log
     if($status) then
       echo " o DSSP failed" | tee -a $LOG
       echo "   * Not using secondary structure in rebuilding" | tee -a $LOG
@@ -7189,7 +7337,7 @@ eof
     grep -v '^A[NT][IO][SM].........[OC][GD][ 12].[SVTP][EAHR][RLO]' $WORKDIR/${PDBID}_loopwhole.pdb > $WORKDIR/${PDBID}_besttls_trim.pdb
 
     #Run Refmac 0cyc to make the maps
-    refmac5 \
+    refmacat \
     XYZIN  $WORKDIR/${PDBID}_besttls_trim.pdb \
     XYZOUT $WORKDIR/${PDBID}_scomit.pdb \
     HKLIN  $WORKDIR/$PDBID.mtz \
@@ -7468,7 +7616,7 @@ eof
 
     #Run dssp again to find secondary structure elements if there were any peptide flips
     if ($NBBFLIP > 0) then
-      mkdssp $WORKDIR/${PDBID}_centrifuge.pdb $WORKDIR/$PDBID.dssp >>& $WORKDIR/dssp.log
+      $TOOLS/mkdssp $WORKDIR/${PDBID}_centrifuge.pdb $WORKDIR/$PDBID.dssp >>& $WORKDIR/dssp.log
       if($status) then
         echo " o Problem with DSSP" | tee -a $LOG
         echo "   * Not using secondary structure in SideAide" | tee -a $LOG
@@ -8304,6 +8452,8 @@ if ($BUILT == 0) then
   set SIGRFFIN   = $SIGRFTLS
   set RFFINZ     = $RFTLSZ
   set ZRFRRATFIN = $ZRFRRATTLS
+  set FSCWFIN    = $FSCWTLS
+  set FSCFFIN    = $FSCFTLS
 
 else
   #Update restraints
@@ -8365,7 +8515,7 @@ else
     echo "-Updating hydrogen bond restraints" | tee -a $LOG
 
     #Define the secondary structure
-    mkdssp -i $WORKDIR/${PDBID}_built.pdb -o $WORKDIR/${PDBID}_built.dssp >& $WORKDIR/dssp.log
+    $TOOLS/mkdssp $WORKDIR/${PDBID}_built.pdb $WORKDIR/${PDBID}_built.dssp >& $WORKDIR/dssp.log
 
     #Generate hydrogen bond restraints if a DSSP file can be made.
     if (! -e $WORKDIR/${PDBID}_built.dssp) then
@@ -8400,7 +8550,7 @@ else
     echo "-Updating homology-based restraints" | tee -a $LOG
 
     #Define the secondary structure
-    mkdssp -i $WORKDIR/${PDBID}_built.pdb -o $WORKDIR/${PDBID}_built.dssp >& $WORKDIR/dssp.log
+    $TOOLS/mkdssp $WORKDIR/${PDBID}_built.pdb $WORKDIR/${PDBID}_built.dssp >& $WORKDIR/dssp.log
 
     #Make the restraints
     cd $WORKDIR/homol
@@ -8478,8 +8628,7 @@ else
   if ($TLSBEST == none) then
     #Autoweight
     set WGTTYPE = "AUTO"
-    set WGRANGE = "2.50"
-    set FCYCLE  = `echo $NCYCLE`
+    set WGRANGE = "2.50" set FCYCLE  = `echo $NCYCLE`
     set BLTBCMD = `echo $TBCMD`
   else
     set FCYCLE  = 20
@@ -8561,7 +8710,7 @@ bltrunning:
 
     if (`cat $WORKDIR/jobs.log | wc -l` < $NPROC) then
 
-      refmac5 \
+      refmacat \
       XYZIN  $WORKDIR/${PDBID}_built.pdb \
       XYZOUT $WORKDIR/${PDBID}_blt$WWGT.pdb \
       HKLIN  $WORKDIR/$PDBID.mtz \
@@ -8791,7 +8940,7 @@ eof
     end
 
     #Pick the best re-refined structure
-    set BLTBEST = `$TOOLS/picker -s -f $ESTRICT $WORKDIR/${PDBID}blt.refi $NTSTCNT $RFRRAT $SRFRRAT $RMSZB $RMSZA`
+    set BLTBEST = `$TOOLS/picker -s -f $ESTRICT $WORKDIR/${PDBID}blt.refi $CNTSTCNT $RFRRAT $SRFRRAT $RMSZB $RMSZA`
     if ($BLTBEST == 'none') then
       #Something is very wrong, give an error mesage and quit.
       echo " " | tee -a $LOG
@@ -8811,12 +8960,14 @@ eof
     cp $WORKDIR/${PDBID}_blt$BLTBEST.log $WORKDIR/${PDBID}_final.log
   endif
 
-  #Set R(-free)
-  set RFIN  = `tail -n $LOGSTEP $WORKDIR/${PDBID}_final.log | head -n 1 | awk '{print $2}'`
-  set RFFIN = `tail -n $LOGSTEP $WORKDIR/${PDBID}_final.log | head -n 1 | awk '{print $3}'`
+  #Set R(-free) and FSC
+  set RFIN    = `tail -n $LOGSTEP $WORKDIR/${PDBID}_final.log | head -n 1 | awk '{print $2}'`
+  set RFFIN   = `tail -n $LOGSTEP $WORKDIR/${PDBID}_final.log | head -n 1 | awk '{print $3}'`
+  set FSCWFIN = `grep 'Average Fourier shell correlation' $WORKDIR/${PDBID}_final.log     | tail -n 1 | awk '{print $6}'`  
+  set FSCFFIN = `grep 'AverageFree Fourier shell correlation' $WORKDIR/${PDBID}_final.log | tail -n 1 | awk '{print $5}'`
 
   #Validate R-free
-  set SIGRFFIN   = `echo $RFFIN $NTSTCNT | awk '{printf ("%.4f\n", $1/sqrt($2))}'`
+  set SIGRFFIN   = `echo $RFFIN $CNTSTCNT | awk '{printf ("%.4f\n", $1/sqrt($2))}'`
   set RFFINUNB   = `echo $RFIN $RFRRAT | awk '{printf ("%.4f\n", $1*$2)}'`
   set RFFINZ     = `echo $RFFINUNB $RFFIN $SIGRFFIN | awk '{printf ("%.2f\n", ($1-$2)/$3)}'`
   set ZRFRRATFIN = `echo $RFRRAT $SRFRRAT $RFIN $RFFIN | awk '{printf ("%.2f\n", ($1-($4/$3))/$2)}'`
@@ -8827,6 +8978,11 @@ eof
   echo "****** Final refinement details ******" | tee -a $LOG
   if ($WGTTYPE == 'MATRIX') then
     echo "Best matrix weight: $BLTBEST"  | tee -a $LOG
+  endif
+  if ($ISEM == 1) then
+    echo "Resulting FSC     : $FSCWFIN"  | tee -a $LOG
+    echo "Resulting FSCfree : $FSCFFIN"  | tee -a $LOG
+    echo " " | tee -a $LOG
   endif
   echo "Resulting R-factor: $RFIN"       | tee -a $LOG
   echo "Resulting R-free  : $RFFIN"      | tee -a $LOG
@@ -8869,8 +9025,8 @@ set CCFOLD = `grep 'CORRELATION COEFFICIENT FO-FC FREE' $WORKDIR/${PDBID}_0cyc.p
 set CCFFIN = `grep 'CORRELATION COEFFICIENT FO-FC FREE' $WORKDIR/${PDBID}_final.pdb | awk '{print $8}'`
 
 #Get the Z-scores
-set ZCCW = `echo "$CCWOLD $CCWFIN $WORKCNT" | awk '{zcco = 0.5*(log((1+$1)/(1-$1))); zccf = 0.5*(log((1+$2)/(1-$2))); zchange = (zccf-zcco)/sqrt(2/($3-3))} END {printf "%6.2f\n", zchange}'`
-set ZCCF = `echo "$CCFOLD $CCFFIN $NTSTCNT" | awk '{zcco = 0.5*(log((1+$1)/(1-$1))); zccf = 0.5*(log((1+$2)/(1-$2))); zchange = (zccf-zcco)/sqrt(2/($3-3))} END {printf "%6.2f\n", zchange}'`
+set ZCCW = `echo "$CCWOLD $CCWFIN $CWORKCNT" | awk '{zcco = 0.5*(log((1+$1)/(1-$1))); zccf = 0.5*(log((1+$2)/(1-$2))); zchange = (zccf-zcco)/sqrt(2/($3-3))} END {printf "%6.2f\n", zchange}'`
+set ZCCF = `echo "$CCFOLD $CCFFIN $CNTSTCNT" | awk '{zcco = 0.5*(log((1+$1)/(1-$1))); zccf = 0.5*(log((1+$2)/(1-$2))); zchange = (zccf-zcco)/sqrt(2/($3-3))} END {printf "%6.2f\n", zchange}'`
 
 #Report the results
 echo "****** Reciprocal space correlation ******" | tee -a $LOG
@@ -8884,11 +9040,12 @@ echo "Free correlation coefficient: $CCFOLD   $CCFFIN  $ZCCF"  | tee -a $LOG
 
 #Do full cross-validation if the R-free set is too small or if asked by the user...
 # ... but only if there was a successful refinement
+# This uses the actual test set count, not the box-size corrected.
 if ( ($NTSTCNT < 500 || $CROSS == 1) && !($BLTBEST == 'skip' && $TLSBEST == 'none')) then
   echo " " | tee -a $LOG
   echo " " | tee -a $LOG
   echo "****** Cross validation ******" | tee -a $LOG
-  if ($NTSTCNT < 500) then
+  if ($CNTSTCNT < 500) then
     echo "-The test set contained fewer than 500 reflections" | tee -a $LOG
     set CROSS = 1
   endif
@@ -8942,7 +9099,7 @@ xvalrunning:
 
       echo " o Starting refinement with test set $SET" | tee -a $LOG
 
-      refmac5 \
+      refmacat \
       XYZIN  $WORKDIR/${PDBID}_crossin.pdb \
       XYZOUT $WORKDIR/cross$SET.pdb \
       HKLIN  $WORKDIR/$PDBID.mtz \
@@ -9095,8 +9252,12 @@ echo " " | tee -a $LOG
 echo " " | tee -a $LOG
 echo "****** Model validation ******" | tee -a $LOG
 
+#Get bond and angle rmsZ from Refmac
+set FBRMSZ = `tail -n $LOGSTEP $WORKDIR/${PDBID}_final.log | head -n 1 | sed 's/\*\*\*\*\*\*/huge/g' | awk '{print $8}'`
+set FARMSZ = `tail -n $LOGSTEP $WORKDIR/${PDBID}_final.log | head -n 1 | sed 's/\*\*\*\*\*\*/huge/g' | awk '{print $10}'`
+
 echo "-Running DSSP" | tee -a $LOG
-mkdssp -i $WORKDIR/${PDBID}_final.pdb -o $WORKDIR/${PDBID}_final.dssp >>& $WORKDIR/dssp.log
+$TOOLS/mkdssp $WORKDIR/${PDBID}_final.pdb $WORKDIR/${PDBID}_final.dssp >>& $WORKDIR/dssp.log
 
 echo "-Running WHAT_CHECK" | tee -a $LOG
 
@@ -9181,16 +9342,16 @@ if (-e $WORKDIR/wf/pdbout.txt) then
   else
     set FBCONF = `grep -a 'Backbone conformation          :' $WORKDIR/wf/pdbout.txt | head -n 1 | cut -c 36-42`
   endif
-  if (`grep -a -c 'Bond lengths                   :' $WORKDIR/wf/pdbout.txt` == 0) then
-    set FBRMSZ = 'NA'
-  else
-    set FBRMSZ = `grep -a 'Bond lengths                   :' $WORKDIR/wf/pdbout.txt | head -n 1 | cut -c 36-42`
-  endif
-  if (`grep -a -c 'Bond angles                    :' $WORKDIR/wf/pdbout.txt` == 0) then
-    set FARMSZ = 'NA'
-  else
-    set FARMSZ = `grep -a 'Bond angles                    :' $WORKDIR/wf/pdbout.txt | head -n 1 | cut -c 36-42`
-  endif
+#   if (`grep -a -c 'Bond lengths                   :' $WORKDIR/wf/pdbout.txt` == 0) then
+#     set FBRMSZ = 'NA'
+#   else
+#     set FBRMSZ = `grep -a 'Bond lengths                   :' $WORKDIR/wf/pdbout.txt | head -n 1 | cut -c 36-42`
+#   endif
+#   if (`grep -a -c 'Bond angles                    :' $WORKDIR/wf/pdbout.txt` == 0) then
+#     set FARMSZ = 'NA'
+#   else
+#     set FARMSZ = `grep -a 'Bond angles                    :' $WORKDIR/wf/pdbout.txt | head -n 1 | cut -c 36-42`
+#   endif
   #Get bump scores
   if (`grep -a -c 'Total number of bumps:' $WORKDIR/wf/pdbout.txt` == 0) then
     set FBUMPS = 0
@@ -9235,8 +9396,8 @@ else
   set FZRAMA = 'NA'
   set FCHI12 = 'NA'
   set FBCONF = 'NA'
-  set FBRMSZ = 'NA'
-  set FARMSZ = 'NA'
+#   set FBRMSZ = 'NA'
+#   set FARMSZ = 'NA'
   set FBUMPS = 'NA'
   set FWBMPS = 'NA'
   set FHBUNS = 'NA'
@@ -10014,7 +10175,7 @@ if ($LOCAL == 0) then
     mtzutils \
     HKLIN  $WORKDIR/allcolumn.mtz \
     HKLOUT $WORKDIR/${PDBID}_$STAGE.mtz \
-<<eof >> $WORKDIR/mtzcleanup.log
+<<eof >>& $WORKDIR/mtzcleanup.log
       EXCLUDE FC PHIC FC_ALL_LS PHIC_ALL_LS $DELLABEL
       END
 eof
@@ -10048,9 +10209,27 @@ if (! -e $WORKDIR/${PDBID}_final.cif) then
 
   $TOOLS/pdb2cif -v \
   $WORKDIR/${PDBID}_final_tot.pdb \
-  $WORKDIR/${PDBID}_final.cif \
+  $WORKDIR/${PDBID}_nodssp.cif \
   $DICTCMD >>& $WORKDIR/cif-merge.log
+else
+  #Cif-merge was successful may need to reset the cell dimensions
+  if ($CELLUPDATE == 1) then
+  
+    #Reset the cell dimensions again
+    cp $WORKDIR/${PDBID}_nodssp.cif $WORKDIR/${PDBID}_semifinal.cif
+  
+    $TOOLS/mmCQL -V --force \
+    $WORKDIR/${PDBID}_semifinal.cif \
+    $WORKDIR/${PDBID}_nodssp.cif \
+    <<eof >>& $WORKDIR/mmCQL.log
+    UPDATE cell SET length_a = $RAAXIS, length_b = $RBAXIS, length_c = $RCAXIS, angle_alpha = $RALPHA, angle_beta = $RBETA, angle_gamma = $RGAMMA;
+eof
+  endif
 endif
+
+#Annotate the final model with DSSP
+$TOOLS/mkdssp $WORKDIR/${PDBID}_nodssp.cif $WORKDIR/${PDBID}_final.cif >& $WORKDIR/dssp.log
+
 
 if (! -e $WORKDIR/${PDBID}_final.cif) then
   #Give error message
@@ -10058,6 +10237,8 @@ if (! -e $WORKDIR/${PDBID}_final.cif) then
   echo "COMMENT: cannot make mmCIF file" >> $DEBUG
   echo "PDB-REDO,$PDBID"                 >> $DEBUG
 endif  
+
+
 
 
 set TOUTPUT = "$OUTPUT.tmp"
@@ -10205,7 +10386,7 @@ echo -n "$SOLVENT $VDWPROBE $IONPROBE $RSHRINK $DOTLS $NTLS $OPTTLSG $ORITLS $LE
 echo -n "$WAVELENGTH $ISTWIN $SOLVD $EXPTYP $COMPLETED $NOPDB $NOSF $USIGMA $ZCALERR $TIME $RESOTYPE $FALSETWIN $TOZRAMA $TFZRAMA $TOCHI12 $TFCHI12 $TOZPAK2 $TFZPAK2 $TOWBMPS $TFWBMPS $TOHBSAT $TFHBSAT $OHRMSZ $NHRMSZ $FHRMSZ " >> $WORKDIR/data.txt
 echo -n "$TOZPAK1 $TFZPAK1 $NLOOPS $NMETALREST2 $OSZRAMA $NSZRAMA $FSZRAMA $OSCHI12 $NSCHI12 $FSCHI12 $SRFRRAT $ZRFRRATCAL $ZRFRRATTLS $ZRFRRATFIN $GOT_PROT $GOT_NUC " >> $WORKDIR/data.txt
 echo -n "$NNUCLEICREST $OBPHBRMSZ $NBPHBRMSZ $FBPHBRMSZ $OSHEAR $NSHEAR $FSHEAR $OSTRETCH $NSTRETCH $FSTRETCH $OBUCKLE $NBUCKLE $FBUCKLE $OPROPEL $NPROPEL $FPROPEL $OCONFAL $NCONFAL $FCONFAL $TOCONFAL $TNCONFAL $TFCONFAL " >> $WORKDIR/data.txt
-echo    "$ODNRMSD $NDNRMSD $FDNRMSD $OBPGRMSZ $NBPGRMSZ $FBPGRMSZ $TOBPGRMSZ $TFBPGRMSZ" >> $WORKDIR/data.txt
+echo    "$ODNRMSD $NDNRMSD $FDNRMSD $OBPGRMSZ $NBPGRMSZ $FBPGRMSZ $TOBPGRMSZ $TFBPGRMSZ $FSCWCAL $FSCFCAL $FSCWTLS $FSCFTLS $FSCWFIN $FSCFFIN" >> $WORKDIR/data.txt
 cp $WORKDIR/data.txt $TOUTPUT/
 if ($?COMMENT) then
   python3 $TOOLS/txt2json.py -i $WORKDIR/data.txt -o $TOUTPUT/tdata.json -c "$COMMENT"

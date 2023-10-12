@@ -1,6 +1,6 @@
       PROGRAM CIF2CIF
 C=======================================================================
-C  Version 8.00 2019-07-12
+C  Version 9.02 2023-08-01
 C  Cleans up mmCIF files to ensure that they can be used in an automated
 C  fashion. It works on all reasonably valid mmCIF reflection files. One
 C  weakpoint is that it cannot always handle files in which the data
@@ -74,6 +74,13 @@ C    Perrakis: "PDB_REDO: constructive validation, more than just
 C    looking for errors" Acta Cryst. D68, p. 484-496 (2012)
 C
 C  Changelog
+C  Version 9.02:
+C  - Using double precision for cell dimensions.
+C  Version 9.01:
+C  - Added contingency for one of the anomalous I columns containing 
+C    no information.
+C  Version 9.00:
+C  - Now writing a fake scale_group_code value.
 C  Version 8.00:
 C  - Cell dimensions and space group are retained.
 C  - Added fallback for missing values.
@@ -162,9 +169,9 @@ C=======================================================================
       IMPLICIT NONE
 C-----Declare the variables and parameters
       INTEGER   MAXDAT, MAXLAB, MAXCOL, I, J, K, L, STATUS
-      CHARACTER FILLER*2
+      CHARACTER FILLER*4
       CHARACTER VERS*4
-      PARAMETER (VERS='8.00')
+      PARAMETER (VERS='9.02')
 C-----MAXDAT is the maximum number of reflections in the file. This
 C-----should be enough for almost all reflection files.
       PARAMETER (MAXDAT=11000000)
@@ -176,7 +183,7 @@ C             F+, sigF+, F-, sigF-, I+, sigI+, I-, sigI-, wavelength,
 C             phase, FOM, HLA, HLB, HLC, HLD (in this order)
       PARAMETER (MAXCOL=24) 
 C-----Filler is just some text used to comply with the mmCIF standard
-      PARAMETER (FILLER='1 ')
+      PARAMETER (FILLER='1 1 ')
       CHARACTER INCIF*255,  OUTCIF*255, GTFREE*1,  WAVEIN*10,  C2JUNK*2,
      +          SYMMHM*13, SYMMID*13, CELLID*13
       CHARACTER LABELS(MAXLAB)*39,  RFREE(MAXDAT)*1
@@ -196,9 +203,9 @@ C       2 = Anomalous I
      +          HL(4,MAXDAT),      PHASE(MAXDAT),  FOM(MAXDAT)
       DOUBLE PRECISION GTREAL, APLUS, AMIN, SAPLUS, SAMIN,T1, T2, T3,T4,
      +                 WPLUS, WMIN, IMERGE, SIMERGE, RATSUM, SIGNAL,
-     +                 SDANO
-      REAL      TMPVAL, FRFRAC, BLAAT,  BL2,    WAVEL,  LOWS2NFRAC,
-     +          AAXIS,  BAXIS,  CAXIS,  ALPHA,  BETA,   GAMMA
+     +                 SDANO,
+     +                 AAXIS,  BAXIS,  CAXIS,  ALPHA,  BETA,   GAMMA   
+      REAL      TMPVAL, FRFRAC, BLAAT,  BL2,    WAVEL,  LOWS2NFRAC
       LOGICAL   IGNORE, USEI,   DEFSIG, USESI,  HVFREE, FIXNEG, ISCCP4,
      +          FRINFO, ISTWIN, ISTRIP, FORCEI, FORI2F, ISTXT, FRIDLM, 
      +          USEWVL, SINGL,  INSANE, WAVELC, USES, USEA, USEHL,DEFFOM
@@ -424,6 +431,7 @@ C         Read the cell dimensions
           END IF
           IF (LINE(1:15).EQ.'_cell.length_a ') THEN
             READ(LINE(16:),*) AAXIS
+            PRINT*, AAXIS
           END IF     
           IF (LINE(1:15).EQ.'_cell.length_b ') THEN
             READ(LINE(16:),*) BAXIS
@@ -1167,7 +1175,11 @@ C       Sum the anomalous difference
 570       CONTINUE
         ELSE 
           DO 575, I=1, REFLEC
-            SDANO = SDANO + ABS(IPLUS(I)-IMIN(I))
+            IF (IPLUS(I).EQ.0.0 .OR. IMIN(I).EQ.0.0) THEN
+C             One of the obeservations has no data. Ignore!
+            ELSE
+              SDANO = SDANO + ABS(IPLUS(I)-IMIN(I))
+            ENDIF  
 575       CONTINUE          
         ENDIF 
 
@@ -1223,9 +1235,12 @@ C-----Header
         WRITE(8, FMT=903)'_diffrn_radiation_wavelength.wavelength',WAVEL
         WRITE(8, FMT='(A)')'#'
       END IF
+      WRITE(8, FMT='(A)') '_reflns_scale.group_code   1'
+      WRITE(8, FMT='(A)')'#'   
       WRITE(8, FMT='(A)') 'loop_'
       WRITE(8, FMT='(A)') '_refln.wavelength_id'
       WRITE(8, FMT='(A)') '_refln.crystal_id'
+      WRITE(8, FMT='(A)') '_refln.scale_group_code'
       WRITE(8, FMT='(A)') '_refln.index_h'
       WRITE(8, FMT='(A)') '_refln.index_k'
       WRITE(8, FMT='(A)') '_refln.index_l'
@@ -1269,14 +1284,14 @@ C       Only write figure-of-merit with phases
 C-----Reflections
       DO 610, L=1,REFLEC
 C       Fill the data line 
-        WRITE (LINE(1:23),FMT=900) WAVLID(L), FILLER, REFH(L), REFK(L),
+        WRITE (LINE(1:25),FMT=900) WAVLID(L), FILLER, REFH(L), REFK(L),
      +    REFL(L)
         IF (USEI.EQV..FALSE.) THEN
-          WRITE(LINE(24:53),FMT=901) SF(L), SIGMAF(L)
+          WRITE(LINE(26:55),FMT=901) SF(L), SIGMAF(L)
         ELSE 
-          WRITE(LINE(24:53),FMT=901) INTENS(L), SIGMAI(L)
+          WRITE(LINE(26:55),FMT=901) INTENS(L), SIGMAI(L)
         END IF
-        POS = 53
+        POS = 55
         IF (HVFREE.EQV..TRUE.) THEN
           WRITE(LINE(POS+1:POS+2),FMT=906) RFREE(L)
           POS = POS+2
@@ -1330,7 +1345,7 @@ C-----Give success statement.
       GO TO 999
 
 C-----Formats
-900   FORMAT(I2,1X,A2,3(I5,1X))
+900   FORMAT(I2,1X,A,3(I5,1X))
 901   FORMAT(2(F14.4,1X))
 902   FORMAT(A250)
 903   FORMAT(A,1X,F7.5)
@@ -1821,6 +1836,15 @@ C SAM  sigmaI(-)
 C WP   1/sigmaI(+)**2
 C WM   1/sigmaI(1)**2
 
+C-----Contingency for missing values
+      IF (AP.EQ.0.0 .AND. SAP.EQ.0.0) THEN
+        IMERGE = AM
+        RETURN
+      ELSE IF (AM.EQ.0.0 .AND. SAM.EQ.0.0) THEN
+        IMERGE = AP
+        RETURN
+      ENDIF
+
 C-----Calculate weights
       WP = 1.0/(SAP*SAP)
       WM = 1.0/(SAM*SAM)
@@ -1845,6 +1869,15 @@ C SAP  sigmaI(+)
 C SAM  sigmaI(-)
 C WP   1/sigmaI(+)**2
 C WM   1/sigmaI(1)**2
+
+C-----Contingency for missing values
+      IF (AP.EQ.0.0 .AND. SAP.EQ.0.0) THEN
+        SIMERGE = SAM
+        RETURN
+      ELSE IF (AM.EQ.0.0 .AND. SAM.EQ.0.0) THEN
+        SIMERGE = SAP
+        RETURN
+      ENDIF
 
 C-----Calculate weights
       WP = 1.0/(SAP*SAP)

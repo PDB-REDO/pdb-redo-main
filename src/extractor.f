@@ -52,6 +52,7 @@ C    Copyright (C) 1999 Bart Hazes
 C
 C Change log
 C Version 6:
+C 6.04 Added fix for dealing with _refln.scale_group_code
 C 6.03 Added fixes for quotes in program names
 C 6.02 Title records are now also mined
 C 6.01 Some cleanup and tollerance for more compounds
@@ -180,7 +181,7 @@ C-----Declare basic variables and parameters
       INTEGER   MAXDAT, MAXCIF, MAXCHN, REFBIN, I, J, K, STATUS, ARGS,
      +          MAXRES, MAXHET, MAXLNK
       CHARACTER RESIDUES*83, BACKBONE*24, VERS*4
-      PARAMETER (VERS='6.03')
+      PARAMETER (VERS='6.04')
 C-----MAXDAT is the maximum allowed lines in a PDB file
       PARAMETER (MAXDAT=999999)
 C-----MAXCIF is the maximum allowed lines in a CIF file
@@ -219,7 +220,8 @@ C     REDO_DATA 12      Data file from PDB_REDO (pdb_redo.dat)
       REAL      RESO,   AAXIS, BAXIS,  CAXIS,  ALPHA,  BETA,  GAMMA,
      +          RFACT,  RFREE,  HKLRES, HIRES,  LOWRES, TSTPRC,BTOT,
      +          BAVER,  BTEMP,  DIFR,   GTREAL, WAVEL, GETVAL
-      INTEGER   ATMCNT, LABCNT, HASH,   JUNK1,  JUNK2,  REFCNT, TSTCNT, 
+      INTEGER   ATMCNT, LABCNT, HASH,   JUNK1,  JUNK2, JUNK3, REFCNT, 
+     +          TSTCNT, 
      +          EXTRA,  CHAINS, YEAR,   ANISOU, HATMCT, FORTLS, GOTTLS,
      +          TMPRESN1, TMPRESN2, NO_BLD_CNT, H2O_KEEP_CNT, OLDRESN,
      +          BBN_KEEP_CNT, BBO_KEEP_CNT, LIG_CNT, LENSTR, NHET, NNUC,
@@ -905,7 +907,8 @@ C-------Ignore junk lines
 C-------READ HKL FROM LINE
         IF (GTTEST.EQV..TRUE.) THEN
           REFCNT = REFCNT+1
-          READ(UNIT=LINE, FMT=*, ERR=510) JUNK1, JUNK2, INDEXH(REFCNT),
+          READ(UNIT=LINE, FMT=*, ERR=510) JUNK1, JUNK2, JUNK3, 
+     +     INDEXH(REFCNT),
      +    INDEXK(REFCNT), INDEXL(REFCNT), SF(REFCNT), SIGSF(REFCNT), 
      +    TSTVAL(REFCNT)
           IF (TSTVAL(REFCNT).EQ.'f') THEN
@@ -913,7 +916,8 @@ C-------READ HKL FROM LINE
 	  END IF
 	ELSE
 	  REFCNT = REFCNT+1
-          READ(UNIT=LINE, FMT=*, ERR=510) JUNK1, JUNK2, INDEXH(REFCNT),
+          READ(UNIT=LINE, FMT=*, ERR=510) JUNK1, JUNK2, JUNK3, 
+     +    INDEXH(REFCNT),
      +    INDEXK(REFCNT), INDEXL(REFCNT), SF(REFCNT), SIGSF(REFCNT)
 	  TSTVAL(REFCNT)='o'
 	END IF  

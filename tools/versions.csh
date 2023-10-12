@@ -151,7 +151,7 @@ set VERSION = `$TOOLS/centrifuge --version | grep Version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"centrifuge":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
 # 28) DSSP, always
-set VERSION = `mkdssp --version | head -n 1| awk '{print $3}'`
+set VERSION = `$TOOLS/mkdssp --version | head -n 1| awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"DSSP":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
 # 29) pepflip, optional

@@ -28,7 +28,7 @@ import sys
 from collections import OrderedDict
 
 
-__version__ = '2.0'
+__version__ = '2.1'
 
 # In data.txt files the columns are always in the same order
 # and don't have headers
@@ -211,8 +211,12 @@ JSON_VAR['NBPGRMSZ'] = 'float'
 JSON_VAR['FBPGRMSZ'] = 'float'
 JSON_VAR['TOBPGRMSZ'] = 'int'
 JSON_VAR['TFBPGRMSZ'] = 'int'
-
-
+JSON_VAR['FSCWCAL'] = 'float'
+JSON_VAR['FSCFCAL'] = 'float'
+JSON_VAR['FSCWTLS'] = 'float'
+JSON_VAR['FSCFTLS'] = 'float'
+JSON_VAR['FSCWFIN'] = 'float'
+JSON_VAR['FSCFFIN'] = 'float'
 
 # The data is space-delimited, except for the spacegroup between quotes
 RE_COL = re.compile(r"'[^']+'|[^'\s]+")

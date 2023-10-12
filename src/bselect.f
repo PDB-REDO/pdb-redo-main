@@ -1,6 +1,6 @@
       PROGRAM BSELECT
 C=======================================================================
-C  Version 3.00 2020-06-08
+C  Version 3.02 2023-10-12
 C  Compares two different types of B-factor refinement and returns the 
 C  best one. Dedicated software, not for general use!
 C
@@ -35,6 +35,13 @@ C    Perrakis: "PDB_REDO: constructive validation, more than just
 C    looking for errors" Acta Cryst. D68, p. 484-496 (2012)
 C
 C  Version history:
+C  3.02:
+C  - Refmacat reports atom count that includes hydrogens which throws
+C    off the calculation. Number of atoms is now taken from the command
+C    line.
+C  3.01:
+C  - Minor reading fix for differences between Refmac5 and refmacat 
+C    output.
 C  3.00:
 C  - Moved to using a new empirical model for the R-free/R ratio.
 C  - The R-free Z-score is now replaced by the R-free/R Z-score in 
@@ -114,10 +121,11 @@ C=======================================================================
 C-----Declare the basic variables and parameters
       INTEGER   I, J, K, T, N, STATUS, MAXLIN, STEPS
       CHARACTER VERS*4
-      PARAMETER (VERS='3.00')
+      PARAMETER (VERS='3.02')
 C-----MAXLIN is the maximum number of lines in the logfile
-      PARAMETER (MAXLIN=10000)
-      CHARACTER LOG1*255, LOG2*255, LINE*100, C2JUNK*2, BTYPEF*6
+      PARAMETER (MAXLIN=90000)
+      CHARACTER LOG1*255, LOG2*255, LINE*100, C2JUNK*2, BTYPEF*6, 
+     +          TXTARG*15
       LOGICAL   VERBOS  , TLSMOD, TLSREF  
 C-----Single values
       INTEGER   ARGS,   EXTRA,  DPAR,  DREST, PASSED,   RTABLE, SCORE,
@@ -151,12 +159,14 @@ C=========================== Help function=============================C
       WRITE(6,*)'E-mail: r.joosten@nki.nl, robbie_joosten@hotmail.com '
       WRITE(6,*) ' '
       WRITE(6,*)'Usage:'
-      WRITE(6,*)'bselect (flags) LOG_IN1 LOG_IN2'
+      WRITE(6,*)'bselect (flags) LOG_IN1 LOG_IN2 NATOM'
       WRITE(6,*)' '
       WRITE(6,*)'LOG_IN1 is a Refmac log file from a refinement with '//
      +          'a specific B-factor model.'
       WRITE(6,*)'LOG_IN2 a log file from a second refinement with an '//
      +          'alternative B-factor model.'
+      WRITE(6,*)'NATOM is the number of refined atoms, e.g. the heavy'//
+     +          'atoms for X-ray diffraction'   
       WRITE(6,*)'    '
       WRITE(6,*)'Possible flags:'
       WRITE(6,*)'-v Verbose mode. Gives output for all the model sele'//
@@ -181,6 +191,8 @@ C-----Initialise
       PARPA(2) = -1
       NTLS(1)  = 0
       NTLS(2)  = 0
+      NATOM(1) = 0
+      NATOM(2) = 0
       VERBOS   = .FALSE.
       TLSMOD   = .FALSE.
       TLSREF   = .FALSE.
@@ -226,6 +238,13 @@ C     Second log file
         END IF
       REWIND (8)
 
+C-----Get the atom count, if given
+      IF ((ARGS - EXTRA).GE. 3) THEN
+        CALL GETARG(3+EXTRA, TXTARG)
+        READ(UNIT=TXTARG, FMT=*) NATOM(1)
+        READ(UNIT=TXTARG, FMT=*) NATOM(2)
+      END IF
+      
 C-------------------------- Parse log files ----------------------------
 
 C-----Loop over log files
@@ -276,10 +295,14 @@ C---------Number of TLS groups
           END IF
 
 C---------Number of atoms
-          IF(LINE(1:22).EQ.'  Number of atoms    :') THEN
-            READ(LINE(23:30), FMT=*, ERR=998) NATOM(I)
+C         Prefer value from command line
+          IF (NATOM(I).EQ.0) THEN
+            IF(LINE(1:23).EQ.' Number of atoms      :') THEN
+              READ(LINE(24:31), FMT=*, ERR=998) NATOM(I)
+            ELSE IF (LINE(1:22).EQ.'  Number of atoms    :') THEN
+              READ(LINE(23:30), FMT=*, ERR=998) NATOM(I)
+            END IF
           END IF
-
 
 C---------Number of restraints (read the second full table)
           IF (TLSMOD.EQV..FALSE.) THEN
@@ -541,6 +564,10 @@ C       Reject the test if the R-free/R ratio cannot be calculated
           IF (RRATZ(N).GE.ZCUTOFF) THEN
 C           Complex model NOT overfitted
             BTEST(2) = BTYPE(N)
+C           Add to the overrule score if the Zscore is high
+            IF (RRATZ(N).GE.1.0) THEN
+              OVERRL = OVERRL + 1
+            END IF
           ELSE IF (RRATZ(N).GE.RRATZ(T)) THEN
 C           Complex model less overfitted than simple model
             BTEST(2) = BTYPE(N)
@@ -597,8 +624,11 @@ C         the simple model
         END IF
 
 C-------Increase the overrule score by one if the complex model has a 
-C       similar R-factor gap
+C       similar R-factor gap or if the R-factor gap is very small
         IF ((RFREE(N)-RFACT(N)).LT.0.5*DLIMIT) THEN
+          OVERRL = OVERRL + 1
+        ELSE IF (((RFREE(N)-RFACT(N)).LT.0.75*DLIMIT).AND. 
+     +           ((RFREE(T)-RFACT(T)).LT.0.5*DLIMIT)) THEN 
           OVERRL = OVERRL + 1
         ELSE IF (BTYPE(N).EQ.'ANISOT') THEN
           IF ((RFREE(T)-RFACT(T)).GT.(RFREE(N)-RFACT(N))) THEN
@@ -681,8 +711,8 @@ C       Overrule a conclusive Hamilton test if the overrule score = 2
           BTYPEF = BTYPE(N)
           IF(VERBOS.EQV..TRUE.)THEN
             WRITE(6,*) ' '  
-            WRITE(UNIT=6,FMT=905) 'R-factor gap very similar in the '//
-     +    'complex model. Hamilton test overruled!'
+            WRITE(UNIT=6,FMT=905) 'Hamilton test overruled by other'//
+     +    'over-fitting tests!'     
           END IF
         END IF
       ELSE IF (BTEST(2).NE.'NULL  ') THEN
