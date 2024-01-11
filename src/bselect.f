@@ -1,6 +1,6 @@
       PROGRAM BSELECT
 C=======================================================================
-C  Version 3.02 2023-10-12
+C  Version 3.03 2024-01-10
 C  Compares two different types of B-factor refinement and returns the 
 C  best one. Dedicated software, not for general use!
 C
@@ -35,6 +35,9 @@ C    Perrakis: "PDB_REDO: constructive validation, more than just
 C    looking for errors" Acta Cryst. D68, p. 484-496 (2012)
 C
 C  Version history:
+C  3.03:
+C  - TLS models are now taken into account even if they are not refined
+C    in the same Refmac run.
 C  3.02:
 C  - Refmacat reports atom count that includes hydrogens which throws
 C    off the calculation. Number of atoms is now taken from the command
@@ -121,7 +124,7 @@ C=======================================================================
 C-----Declare the basic variables and parameters
       INTEGER   I, J, K, T, N, STATUS, MAXLIN, STEPS
       CHARACTER VERS*4
-      PARAMETER (VERS='3.02')
+      PARAMETER (VERS='3.03')
 C-----MAXLIN is the maximum number of lines in the logfile
       PARAMETER (MAXLIN=90000)
       CHARACTER LOG1*255, LOG2*255, LINE*100, C2JUNK*2, BTYPEF*6, 
@@ -355,11 +358,6 @@ C-----Number of parameters
        NPAR(1) = NTLS(1)*20
        NPAR(2) = NTLS(2)*20
       ELSE 
-C      Only count the TLS parameters if they were refined here
-       IF (TLSREF.EQV..FALSE.) THEN
-         NTLS(1) = 0
-         NTLS(2) = 0
-       END IF
        NPAR(1) = NATOM(1)*PARPA(1)+NTLS(1)*20
        NPAR(2) = NATOM(2)*PARPA(2)+NTLS(2)*20
       END IF
@@ -368,13 +366,10 @@ C-----Give a summary if verbos
       IF(VERBOS.EQV..TRUE.)THEN
         WRITE(UNIT=6,FMT=905) 'Summary:'
         WRITE(UNIT=6,FMT=905) '--------'
-        IF (TLSMOD.EQV..TRUE.) THEN
-          WRITE(UNIT=6,FMT=906) 'TLS groups in log1 :', NTLS(1)
-          WRITE(UNIT=6,FMT=906) 'TLS groups in log2 :', NTLS(2)  
-        ELSE
-          WRITE(UNIT=6,FMT=906) 'Atoms in log1      :', NATOM(1)
-          WRITE(UNIT=6,FMT=906) 'Atoms in log2      :', NATOM(2)
-        END IF
+        WRITE(UNIT=6,FMT=906) 'TLS groups in log1 :', NTLS(1)
+        WRITE(UNIT=6,FMT=906) 'TLS groups in log2 :', NTLS(2)  
+        WRITE(UNIT=6,FMT=906) 'Atoms in log1      :', NATOM(1)
+        WRITE(UNIT=6,FMT=906) 'Atoms in log2      :', NATOM(2)
         WRITE(UNIT=6,FMT=906) 'Parameters in log1 :', NPAR(1)
         WRITE(UNIT=6,FMT=906) 'Parameters in log2 :', NPAR(2)
         WRITE(UNIT=6,FMT=906) 'Work refs. in log1 :', NREF(1)

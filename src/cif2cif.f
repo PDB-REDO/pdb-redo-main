@@ -1,6 +1,6 @@
       PROGRAM CIF2CIF
 C=======================================================================
-C  Version 9.02 2023-08-01
+C  Version 9.03 2023-10-16
 C  Cleans up mmCIF files to ensure that they can be used in an automated
 C  fashion. It works on all reasonably valid mmCIF reflection files. One
 C  weakpoint is that it cannot always handle files in which the data
@@ -74,6 +74,9 @@ C    Perrakis: "PDB_REDO: constructive validation, more than just
 C    looking for errors" Acta Cryst. D68, p. 484-496 (2012)
 C
 C  Changelog
+C  Version 9.03:
+C  - Reflections with rediculously high sigI values are dropped.
+C  - Problem case was 8ebi.
 C  Version 9.02:
 C  - Using double precision for cell dimensions.
 C  Version 9.01:
@@ -171,7 +174,7 @@ C-----Declare the variables and parameters
       INTEGER   MAXDAT, MAXLAB, MAXCOL, I, J, K, L, STATUS
       CHARACTER FILLER*4
       CHARACTER VERS*4
-      PARAMETER (VERS='9.02')
+      PARAMETER (VERS='9.03')
 C-----MAXDAT is the maximum number of reflections in the file. This
 C-----should be enough for almost all reflection files.
       PARAMETER (MAXDAT=11000000)
@@ -878,6 +881,11 @@ C               Set value to 0.0000 for '?' (see GTREAL)
 	          SIGMAI(REFLEC) = 0.0000             
                 END IF
               END IF
+C             Drop reflections with rediculously high sigI
+              IF (ABS(SIGMAI(REFLEC)/INTENS(REFLEC)).GT.1000) THEN
+                REFLEC=REFLEC-1
+                GO TO 994
+              END IF  
             END IF  
               
 C           Populate the anomalous columns if needed
@@ -910,7 +918,11 @@ C             Set value to 0.0000 for '?' (see GTREAL)
                SIGMAI(REFLEC) = 0.0000             
               END IF
             END IF
-              
+C           Drop reflections with rediculously high sigI
+            IF (ABS(SIGMAI(REFLEC)/INTENS(REFLEC)).GT.1000) THEN
+              REFLEC=REFLEC-1
+              GO TO 994
+            END IF  
           END IF 
 C         Convert I to F
           IF (FORI2F.EQV..TRUE.) THEN
