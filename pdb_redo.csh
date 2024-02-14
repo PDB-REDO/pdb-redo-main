@@ -139,11 +139,20 @@ endif
 # - x3dna-dssr     Needed for nucleic acid restraints and validation.
 #
 ####################################################### Change log #######################################################
-set VERSION = '8.04' #PDB-REDO version
+set VERSION = '8.05' #PDB-REDO version
 
+# Version 8.05:
+# - Changed the B-factor model selection. TLS model selection is now performed first. If successful, the B-factor model 
+#   selection can be ANISO versus ISO + TLS rather than ANISO versus ISO.
+#
 # Version 8.04:
 # - Added explicit warning for compounds without restraints.
+# - In databank mode restraints are created automatically and added to the local monomer library.
 # - Retuned the B-factor model selection to be less conservative.
+# - Updated cif2cif to deal with rediculous sigI values (see 8ebi).
+# - Bugfix for cases where the second platonyzer run does not generate any restraints.
+# - Bugfix for restraints checking while updating the solvent mask parameters in case of a new resolution cut-off.
+# - Catch for cases when hybrid64 files are written.
 #
 # Version 8.03:
 # - Started using Refmacat.
@@ -529,7 +538,7 @@ set ANOMCOEF      =         #Input anomalous data for Refmac
 set ANOMCMD       =         #Command for anomalous refinement
 set FASTAIN       =         #No input fasta by default
 set DICTCMD       =         #No dictionary to append by default  
-set DICTCMDDF     =         #No dictionary to append by default to density-fitness  
+set DICTCMDDF     =         #No dictionary to append by default to density-fitness       
 
 #Refmac settings
 set CONNECTIVITY  =         #Empty value uses Refmac's default other options are 'connectivity [YES|NO|DEFINE]'
@@ -556,6 +565,7 @@ set PREPPERRETRY = 0            #Number of prepper retries
 set CELLUPDATE   = 0            #Were the cell dimensions in the model updated
 set BOXSCALE     = 1.0          #Default correction for box sizes (EM only)
 set ISEM         = 0            #Assume it is not an EM structure model
+set NEWREST      = 0            #No new restraints made yet
 
 #Error flags
 set TTEST      = 0 #No errors in the TLS group optimisation
@@ -663,9 +673,9 @@ if ($1 == "--local") then
 endif
 
 #Write out header
-echo " __   __   __     __   ___  __   __    _     __     " | tee -a $LOG
-echo "|__) |  \ |__) _ |__) |__  |  \ /  \  (_)   / /\ |_|" | tee -a $LOG
-echo "|    |__/ |__)   |  \ |___ |__/ \__/  (_) o \/_/   |" | tee -a $LOG
+echo " __   __   __     __   ___  __   __    _     __   __" | tee -a $LOG
+echo "|__) |  \ |__) _ |__) |__  |  \ /  \  (_)   / /\ |_ " | tee -a $LOG
+echo "|    |__/ |__)   |  \ |___ |__/ \__/  (_) o \/_/ __)" | tee -a $LOG
 echo " "
 
 #Font for the header
@@ -1676,7 +1686,8 @@ if ("$MSPACE" != "$RSPACE") then
     echo "------------" | tee -a $LOG
     echo "The space group in your model ($MSPACE) and your reflection data ($RSPACE) do not match! Please, correct your input data." | tee -a $LOG
   else  
-    echo "-Space group conflict. Cannot continue."   | tee -a $LOG
+    echo "-Space group conflict. Cannot continue."       | tee -a $LOG
+    echo " o Coordinates: $MSPACE, reflections: $RSPACE" | tee -a $LOG
   endif
   #Write WHYNOT information:
   echo "COMMENT: Space group conflict" >> $WHYNOT
@@ -1790,7 +1801,7 @@ if ("$INREST" != "") then
     #Force Refmac to use the uploaded restraint file
     set LIBLIN    = `echo LIBIN $WORKDIR/${PDBID}_het.cif LIBOUT $WORKDIR/${PDBID}_het2.cif`
     set DICTCMD   = "--dict $WORKDIR/${PDBID}_het.cif"
-    set DICTCMDDF = "--other-compounds $WORKDIR/${PDBID}_het.cif"
+    set DICTCMDDF = "--extra-compounds $WORKDIR/${PDBID}_het.cif"
   endif
 else
   set LIBLIN = `echo LIBOUT $WORKDIR/${PDBID}_het.cif` #Output Refmac library file for new compounds or LINKs
@@ -1875,7 +1886,7 @@ echo " o Running prepper" | tee -a $LOG
 #the refmac library, and superfluous carbohydrate oxygen atoms. Also remove crazy LINKs. PROGRAM: prepper
 $TOOLS/prepper \
 $WORKDIR/${PDBID}_platonyzed.cif \
-$WORKDIR/${PDBID}_prepped.pdb \
+$WORKDIR/${PDBID}_prepped.cif \
 $SMODE \
 --pdb-redo-data $TOOLS/pdb-redo-data.cif \
 --cab-sg-distance 3.0 \
@@ -1883,7 +1894,7 @@ $DICTCMD \
 >& $WORKDIR/prepper.log
 
 #Was prepper succesful?
-if (! -e $WORKDIR/${PDBID}_prepped.pdb || -z $WORKDIR/${PDBID}_prepped.pdb) then
+if (! -e $WORKDIR/${PDBID}_prepped.cif || -z $WORKDIR/${PDBID}_prepped.cif) then
   if (`grep Error $WORKDIR/prepper.log | grep -c ${PDBID}_het.cif` != 0) then
     #The restraint file is fishy. Warn, but continue.
     echo "COMMENT: prepper: cannot parse restraint file" >> $DEBUG
@@ -1951,68 +1962,6 @@ if (! -e $WORKDIR/${PDBID}_prepped.pdb || -z $WORKDIR/${PDBID}_prepped.pdb) then
     exit(1)
   endif    
 endif
-
-#Check for ATOM records
-if (`grep -c '^[HA][ET][TO][AM]' $WORKDIR/${PDBID}_prepped.pdb` == 0) then
-  #Try again once if the problem is caused by auth_asym_id
-  if ($PREPPERRETRY == 0) then
-    set PREPPERRETRY = 1
-    echo "   * Problem with prepper output, trying to compensate." | tee -a $LOG	
-
-    #See if we can modifify the model to be set to PDB format
-    set NASYM = `$TOOLS/cif-grep -i '_atom_site.auth_asym_id' '.' $COORD/$D2/${PDBID}.cif.gz | sort -u | wc -l`
-    set NATOM = `$TOOLS/cif-grep -c -i '_atom_site.auth_asym_id' '.' $COORD/$D2/${PDBID}.cif.gz`
-    if ($NASYM < 63 && $NATOM < 100000) then  #Only 62 possible chainIDs and 99999 atoms in PDB format
-      echo "   * Renaming chains" | tee -a $LOG
-      #Construct command for mmCQL
-      set MMCQLCMD = 
-      set IASYM = 0
-      #Loop over all single character chains and remove them as renaming options
-      set POSSIBLE = $ALFNUM
-      foreach ASYM (`$TOOLS/cif-grep -i '_atom_site.auth_asym_id' '.' $COORD/$D2/${PDBID}.cif.gz | sort -u | grep '^.$'`)
-        set POSSIBLE = `echo $POSSIBLE | tr -d "$ASYM"`
-      end
-
-      #Rename all chains except the ones that already have a single character
-      foreach ASYM (`$TOOLS/cif-grep -i '_atom_site.auth_asym_id' '.' $COORD/$D2/${PDBID}.cif.gz | sort -u | grep '..'`)
-        @ IASYM = ($IASYM + 1)
-        set CHAIN = `echo $POSSIBLE | cut -c $IASYM-$IASYM`
-        set MMCQLCMD = "$MMCQLCMD UPDATE pdbx_poly_seq_scheme SET pdb_strand_id = '$CHAIN' WHERE pdb_strand_id = '$ASYM'; UPDATE atom_site SET auth_asym_id = '$CHAIN' WHERE auth_asym_id = '$ASYM'; "
-      end
-
-      #Run mmCQL
-      cp $WORKDIR/${PDBID}_platonyzed.cif $WORKDIR/${PDBID}_platonyzed_bak.cif
-      $TOOLS/mmCQL -V --force \
-      $WORKDIR/${PDBID}_platonyzed_bak.cif \
-      $WORKDIR/${PDBID}_platonyzed.cif \
-      <<eof >& $WORKDIR/mmCQL_chains.log
-      $MMCQLCMD
-eof
-  
-      #Rerun prepper
-      goto prepperrun
-    endif
-  endif
-  
-  #Give up
-  echo "COMMENT: prepper: cannot cast model to PDB format" >> $WHYNOT
-  echo "PDB-REDO,$PDBID"                                   >> $WHYNOT
-  #Give detailed help message
-  if ($LOCAL == 1) then
-    echo " " | tee -a $LOG
-    echo "FATAL ERROR!" | tee -a $LOG
-    echo "------------" | tee -a $LOG
-    echo "Your input model cannot be cast to PDB format." | tee -a $LOG
-    if ($SERVER == 1) then
-      #Write out status files
-      touch $STDIR/stoppingProcess.txt
-      touch $STDIR/processStopped.txt
-    endif
-  else  
-    echo "   * The input model cannot be cast to PDB format. Exit." | tee -a $LOG	
-  endif  
-  exit(1)
-endif
   
 #Report changes
 grep -A 12 Report $WORKDIR/prepper.log | grep -v -E 'Report|CPU|Invalid' | xargs -d '\n' -n 1 echo "   *" | tee -a $LOG
@@ -2065,7 +2014,7 @@ else
   echo " o Cannot parse structure factor file. Exit." | tee -a $LOG
   echo "COMMENT: cif2cif: cannot parse structure factors" >> $WHYNOT
   echo "PDB-REDO,$PDBID"                                  >> $WHYNOT
-  rm core.*
+  rm core.* >& /dev/null
   if ($SERVER == 1) then
     #Write out status files
     touch $STDIR/stoppingProcess.txt
@@ -2131,18 +2080,18 @@ if (`grep -c '_refln.pdbx_F_plus' $WORKDIR/$PDBID.hkl.cif` != 0 || `grep -c '_re
   endif
 endif
 
-#Extract information from a pdbfile en the newly created reflection file
-#TLS group information is extracted from the PDB header. If no groups are defined, every chain gets its own TLS group
-echo "-Extracting data from the PDB file" | tee -a $LOG
+#Extract information from a coordinate file en the newly created reflection file
+#TLS group information is extracted from the header. If no groups are defined, every chain gets its own TLS group
+echo "-Extracting data from the coordinate file" | tee -a $LOG
 
 #PROGRAM: extractor
-$TOOLS/extractor -f $RELAX \
-$WORKDIR/${PDBID}_prepped.pdb \
+$TOOLS/extractor2 \
+$DICTCMD \
+--pdb_redo_data $TOOLS/pdb-redo-data.cif \
+--tls_out $WORKDIR/$PDBID.tls \
+$WORKDIR/${PDBID}_prepped.cif \
 $WORKDIR/${PDBID}.hkl.cif \
-$CLIBD_MON/list/mon_lib_list.cif \
-$TOOLS/pdb_redo.dat \
-$WORKDIR/$PDBID.extracted \
-$WORKDIR/$PDBID.tls > $WORKDIR/extractor.log
+$WORKDIR/$PDBID >& $WORKDIR/extractor.log
 
 #Success or not?
 if (-e $WORKDIR/$PDBID.extracted) then
@@ -2162,14 +2111,14 @@ else
       grep -A 1 'Cannot interpret the PDB file:' $WORKDIR/extractor.log | tail -n 1 | tee -a $LOG
       echo "Please, ensure that you provide a valid PDB file."
     else
-      echo "Could not parse the input PDB file. Please, ensure it is a valid file." | tee -a $LOG
+      echo "Could not parse the input coordinate file. Please, ensure it is a valid file." | tee -a $LOG
     endif
   else
     #Give the short error message
     echo " " | tee -a $LOG
-    echo " o Cannot parse pdb file. Exit." | tee -a $LOG
+    echo " o Cannot parse coordinate file. Exit." | tee -a $LOG
   endif
-  echo "COMMENT: extractor: error using PDB file" >> $WHYNOT
+  echo "COMMENT: extractor: error using coordinate file" >> $WHYNOT
   echo "PDB-REDO,$PDBID"                          >> $WHYNOT
   if ($SERVER == 1) then
     #Write out status files
@@ -2181,24 +2130,12 @@ else
 endif
 
 #Are there any TLS groups from extractor?
-if (-e $WORKDIR/$PDBID.tls || -e $WORKDIR/REDO.tls) then
-  if (`grep -c 'TLS groups created' $WORKDIR/extractor.log` != 0) then
-    echo " o `grep 'TLS groups created' $WORKDIR/extractor.log`" | tee -a $LOG
-  endif
-  if (`grep -c 'TLS groups extracted' $WORKDIR/extractor.log` != 0) then
-    echo " o `grep 'TLS groups extracted' $WORKDIR/extractor.log`" | tee -a $LOG
-  endif
-else
-  echo " o Extractor could not create TLS group definitions" | tee -a $LOG
-  echo "COMMENT: extractor: cannot create TLS groups" >> $DEBUG
-  echo "PDB-REDO,$PDBID"                              >> $DEBUG
+if (-e $WORKDIR/$PDBID.tls) then
+  echo " o TLS groups extracted: `grep -c 'TLS' $WORKDIR/$PDBID.tls`" | tee -a $LOG
 endif
-
-#Check for TLS parsing errors
-if (`grep -c "negative selectors" $WORKDIR/extractor.log` != 0 || `grep -c "Cannot read TLS residue range" $WORKDIR/extractor.log` != 0) then
-  echo " o Extractor could not parse original TLS group definitions" | tee -a $LOG
-  echo "COMMENT: extractor: cannot parse TLS groups" >> $DEBUG
-  echo "PDB-REDO,$PDBID"                             >> $DEBUG
+if (-e $WORKDIR/${PDBID}-chains.tls) then
+  echo " o TLS groups created  : `grep -c 'TLS' $WORKDIR/${PDBID}-chains.tls`" | tee -a $LOG
+  mv $WORKDIR/${PDBID}-chains.tls $WORKDIR/REDO.tls
 endif
 
 #Copy in extra TLS files
@@ -2222,80 +2159,118 @@ if ("$XTLS" != "") then
 endif
 
 #Get important parameters from $PDBID/$PDBID.extracted
-set AAXIS      = `head -n 1  $WORKDIR/$PDBID.extracted`
-set BAXIS      = `head -n 2  $WORKDIR/$PDBID.extracted | tail -n 1`
-set CAXIS      = `head -n 3  $WORKDIR/$PDBID.extracted | tail -n 1`
-set ALPHA      = `head -n 4  $WORKDIR/$PDBID.extracted | tail -n 1`
-set BETA       = `head -n 5  $WORKDIR/$PDBID.extracted | tail -n 1`
-set GAMMA      = `head -n 6  $WORKDIR/$PDBID.extracted | tail -n 1`
-set RESOLUTION = `head -n 7  $WORKDIR/$PDBID.extracted | tail -n 1`
-set DATARESH   = `head -n 8  $WORKDIR/$PDBID.extracted | tail -n 1`
-set DATARESL   = `head -n 9  $WORKDIR/$PDBID.extracted | tail -n 1`
-set RFACT      = `head -n 10 $WORKDIR/$PDBID.extracted | tail -n 1`
-set RFREE      = `head -n 11 $WORKDIR/$PDBID.extracted | tail -n 1`
-set NO_REBUILD = `head -n 12 $WORKDIR/$PDBID.extracted | tail -n 1`
+#Cell dimensions
+set AAXIS      = `$TOOLS/cif-grep -i _cell.length_a . $WORKDIR/$PDBID.extracted`
+set BAXIS      = `$TOOLS/cif-grep -i _cell.length_b . $WORKDIR/$PDBID.extracted`
+set CAXIS      = `$TOOLS/cif-grep -i _cell.length_b . $WORKDIR/$PDBID.extracted`
+set ALPHA      = `$TOOLS/cif-grep -i _cell.angle_alpha . $WORKDIR/$PDBID.extracted`
+set BETA       = `$TOOLS/cif-grep -i _cell.angle_beta  . $WORKDIR/$PDBID.extracted`
+set GAMMA      = `$TOOLS/cif-grep -i _cell.angle_gamma . $WORKDIR/$PDBID.extracted`
+set SPACEGROUP = `$TOOLS/cif-grep -i _extracted_info.spacegroup . $WORKDIR/$PDBID.extracted | tr -d "'"`
+
+#Data properties
+set RESOLUTION = `$TOOLS/cif-grep -i _extracted_info.resolution . $WORKDIR/$PDBID.extracted`
+set DATARESH   = `$TOOLS/cif-grep -i _extracted_info.resolution_high . $WORKDIR/$PDBID.extracted`
+set DATARESL   = `$TOOLS/cif-grep -i _extracted_info.resolution_low . $WORKDIR/$PDBID.extracted`
+set REFCNT     = `$TOOLS/cif-grep -i _extracted_info.reflection_count . $WORKDIR/$PDBID.extracted`
+set TSTCNT     = `$TOOLS/cif-grep -i _extracted_info.testset_count . $WORKDIR/$PDBID.extracted`
+set TSTPRC     = `$TOOLS/cif-grep -i _extracted_info.testset_perc . $WORKDIR/$PDBID.extracted | awk '{printf ("%.1f\n", $1)}'`
+set WAVELPDB   = `$TOOLS/cif-grep -i _extracted_info.wavelength . $WORKDIR/$PDBID.extracted`
+set COMPLETEH  = `$TOOLS/cif-grep -i _extracted_info.completeness . $WORKDIR/$PDBID.extracted`
+
+#Model properties
+set GOT_PROT = F
+set GOT_NUC  = F
+set GOT_CARB = F
+if (`$TOOLS/cif-grep -i _extracted_info.protein . $WORKDIR/$PDBID.extracted` == y) then
+  set GOT_PROT = T
+endif
+if (`$TOOLS/cif-grep -i _extracted_info.dna . $PDBID.extracted` == y || `$TOOLS/cif-grep -i _extracted_info.rna . $WORKDIR/$PDBID.extracted` == y) then
+  set GOT_NUC = T
+endif
+if (`$TOOLS/cif-grep -i _extracted_info.polysaccharide . $WORKDIR/$PDBID.extracted` == y) then
+  set GOT_CARB = T
+endif
+set BAVER      = `$TOOLS/cif-grep -i _extracted_info.b_avg . $WORKDIR/$PDBID.extracted | awk '{printf ("%.2f\n", $1)}'`
+set SOLVD      = `$TOOLS/cif-grep -i _extracted_info.solvent_content . $WORKDIR/$PDBID.extracted`   
+
+#Refinement data
+set RFACT      = `$TOOLS/cif-grep -i _extracted_info.r_factor . $WORKDIR/$PDBID.extracted`
+set RFREE      = `$TOOLS/cif-grep -i _extracted_info.r_free . $WORKDIR/$PDBID.extracted`
+set VDWPROBE   = `$TOOLS/cif-grep -i _extracted_info.solvent_vdw_probe_radii . $WORKDIR/$PDBID.extracted`
+if ($VDWPROBE == '' || $VDWPROBE == '?') then
+  set VDWPROBE = 'NA'
+endif  
+set IONPROBE   = `$TOOLS/cif-grep -i _extracted_info.solvent_ion_probe_radii . $WORKDIR/$PDBID.extracted`
+if ($IONPROBE == '' || $IONPROBE == '?') then
+  set IONPROBE = 'NA'
+endif  
+set RSHRINK    = `$TOOLS/cif-grep -i _extracted_info.solvent_shrinkage_radii . $WORKDIR/$PDBID.extracted`
+if ($RSHRINK == '' || $RSHRINK == '?') then
+  set RSHRINK = 'NA'
+endif  
+
+#Administrative
+set PROG       = `$TOOLS/cif-grep -i _extracted_info.refinement_program . $WORKDIR/$PDBID.extracted | tr ' ' '_'`
+set DYEAR      = `$TOOLS/cif-grep -i _pdbx_database_status.recvd_initial_deposition_date . $WORKDIR/${PDBID}_prepped.cif | cut -c 1-4`
+if ($DYEAR == "" || $DYEAR == ".") then
+  set DYEAR = 2161
+endif  
+set TITLE      = `$TOOLS/cif-grep -i _struct.title . ${PDBID}_prepped.cif`
+
+#Lists
+if (`grep -c 'no-build' $WORKDIR/$PDBID.extracted` > 0) then
+  set NO_REBUILD = `echo "SELECT list FROM skip_list WHERE type = 'no-build' ; " | $TOOLS/mmCQL $WORKDIR/$PDBID.extracted | grep ':'`
+else 
+  set NO_REBUILD = ':'
+endif  
 #Extend the list if needed
 if (-e $WORKDIR/${PDBID}_platonyzed.skip-sideaid) then
   set NO_REBUILD = "$NO_REBUILD`cat $WORKDIR/${PDBID}_platonyzed.skip-sideaid`"
 endif
-set BAVER      = `head -n 13 $WORKDIR/$PDBID.extracted | tail -n 1`
-#set BREF       = `head -n 14 $WORKDIR/$PDBID.extracted | tail -n 1` #Not used
-set REFCNT     = `head -n 15 $WORKDIR/$PDBID.extracted | tail -n 1`
-set TSTCNT     = `head -n 16 $WORKDIR/$PDBID.extracted | tail -n 1`
-set TSTPRC     = `head -n 17 $WORKDIR/$PDBID.extracted | tail -n 1`
-set PROG       = `head -n 18 $WORKDIR/$PDBID.extracted | tail -n 1`
-set DYEAR      = `head -n 19 $WORKDIR/$PDBID.extracted | tail -n 1`
-set SPACEGROUP = `head -n 20 $WORKDIR/$PDBID.extracted | tail -n 1`
-set H2O_KEEP   = `head -n 21 $WORKDIR/$PDBID.extracted | tail -n 1`
+
+if (`grep -c 'h2o-keep' $WORKDIR/$PDBID.extracted` > 0) then
+  set H2O_KEEP   = `echo "SELECT list FROM skip_list WHERE type = 'h2o-keep' ; " | $TOOLS/mmCQL $WORKDIR/$PDBID.extracted | grep ':'`
+else
+  set H2O_KEEP   = ':'
+endif
 #Extend the list if needed
 if (-e $WORKDIR/${PDBID}_platonyzed.skip-waters) then
   set H2O_KEEP = "$H2O_KEEP`cat $WORKDIR/${PDBID}_platonyzed.skip-waters`"
 endif
-set BBN_KEEP   = `head -n 22 $WORKDIR/$PDBID.extracted | tail -n 1`
+
+if (`grep -c 'bbn-keep' $WORKDIR/$PDBID.extracted` > 0) then
+  set BBN_KEEP   = `echo "SELECT list FROM skip_list WHERE type = 'bbn-keep' ; " | $TOOLS/mmCQL $WORKDIR/$PDBID.extracted | grep ':'`
+else
+  set BBN_KEEP   = ':'
+endif  
 #Extend the list if needed
 if (-e $WORKDIR/${PDBID}_platonyzed.skip-pepflipN) then
   set BBN_KEEP = "$BBN_KEEP`cat $WORKDIR/${PDBID}_platonyzed.skip-pepflipN`"
 endif
-set BBO_KEEP   = `head -n 23 $WORKDIR/$PDBID.extracted | tail -n 1`
+
+if (`grep -c 'bbo-keep' $WORKDIR/$PDBID.extracted` > 0) then
+  set BBO_KEEP   = `echo "SELECT list FROM skip_list WHERE type = 'bbo-keep' ; " | $TOOLS/mmCQL $WORKDIR/$PDBID.extracted | grep ':'`
+else
+  set BBO_KEEP   = ':'
+endif 
 #Extend the list if needed
 if (-e $WORKDIR/${PDBID}_platonyzed.skip-pepflipO) then
   set BBO_KEEP = "$BBO_KEEP`cat $WORKDIR/${PDBID}_platonyzed.skip-pepflipO`"
 endif
-set GOT_PROT   = `head -n 24 $WORKDIR/$PDBID.extracted | tail -n 1`
-set VDWPROBE   = `head -n 25 $WORKDIR/$PDBID.extracted | tail -n 1`
-set IONPROBE   = `head -n 26 $WORKDIR/$PDBID.extracted | tail -n 1`
-set RSHRINK    = `head -n 27 $WORKDIR/$PDBID.extracted | tail -n 1`
-set COMPLETEH  = `head -n 28 $WORKDIR/$PDBID.extracted | tail -n 1`
-set LIG_LIST   = `head -n 29 $WORKDIR/$PDBID.extracted | tail -n 1`
-set GOT_NUC    = `head -n 30 $WORKDIR/$PDBID.extracted | tail -n 1`
-set WAVELPDB   = `head -n 31 $WORKDIR/$PDBID.extracted | tail -n 1`
-set TITLE      = "`tail -n 1 $WORKDIR/$PDBID.extracted`"
 
 #Check for strict NCS and count the number of atoms
 #Calculate the number of atoms in the refinement...
-set ATMCNT = `grep -c -E '^[AH][TE][OT][MA]' $WORKDIR/${PDBID}_prepped.pdb` 
+set ATMCNT = `$TOOLS/cif-grep -v -i _atom_site.type_symbol H $WORKDIR/${PDBID}_prepped.cif | wc -l` 
 set NMTRIX  = "1"
 #... if strict NCS is used, multiply the apparent number of atoms with the number of MTRIX records
 if ($STRICTNCS == 1) then
   #Count the number of MTRIX records
-  set NMTRIX = `grep -E '^MTRIX' $WORKDIR/${PDBID}_prepped.pdb | cut -c 7-10 | sort -u | wc -l`
+  set NMTRIX = `cif-grep -c -i _struct_ncs_oper.code generate $WORKDIR/${PDBID}_prepped.cif`
+  #Add 1 for the identity matrix
+  @ NMTRIX = ($NMATRIX + 1)
   #Get the total
   set ATMCNT = `echo $NMTRIX $ATMCNT | awk '{print $1*$2}'`
-endif
-
-
-#Get the solvent content. PROGRAM: rwcontents
-rwcontents \
-XYZIN $WORKDIR/${PDBID}_prepped.pdb <<eof > $WORKDIR/rwcont.log
-eof
-if ($status) then
-  #Give a debug message
-  echo "COMMENT: rwcontents failed"   >> $DEBUG
-  echo "PDB-REDO,$PDBID"              >> $DEBUG
-  set SOLVD = 'NA'
-else
-  #Get the numbers
-  set SOLVD = `grep 'Assuming protein density is' $WORKDIR/rwcont.log | cut -d ':' -f 2 | sed 's/\*\*\*\*\*\*\*\*\*\*\*\*/NA/g'`
 endif
 
 #Get the sequence
@@ -2313,17 +2288,17 @@ if ($GOT_PROT == 'T') then
   $TOOLS/pdb2fasta \
   -v \
   $FASTAIN \
-  -pdb $WORKDIR/${PDBID}_prepped.pdb \
+  -pdb $WORKDIR/${PDBID}_prepped.cif \
   -fasta $WORKDIR/$PDBID.fasta \
   -tools $TOOLS \
   >& $WORKDIR/pdb2fasta.log
   #make sure there is a fasta file
   if (! -e $WORKDIR/$PDBID.fasta) then
     if ($DOHOMOLOGY == 1) then
-      echo "  * Cannot extract sequence. Not using homology restraints." | tee -a $LOG
+      echo "  * No protein sequence extracted. Not using homology restraints." | tee -a $LOG
       set DOHOMOLOGY = 0
     else
-      echo "   * Cannot extract sequence." | tee -a $LOG
+      echo "   * No protein sequence extracted." | tee -a $LOG
     endif
     echo "COMMENT: Cannot make fasta file" >> $DEBUG
     echo "PDB-REDO,$PDBID"                 >> $DEBUG
@@ -2349,7 +2324,7 @@ if ($GOT_PROT == 'T') then
   else  
     #Is there a sequence defined in the input file?
     if (`$TOOLS/cif-grep -c -i _entity_poly.pdbx_seq_one_letter_code_can . $WORKDIR/cache.cif` == 0 && \
-        `$TOOLS/cif-grep -c -i _entity_poly.pdbx_seq_one_letter_code . $WORKDIR/cache.cif`) then
+        `$TOOLS/cif-grep -c -i _entity_poly.pdbx_seq_one_letter_code . $WORKDIR/cache.cif` == 0) then
       set TRUSTSEQ = 1
     endif
   endif
@@ -2549,14 +2524,10 @@ wavelengthadd:
 if (`grep -c '_diffrn_radiation_wavelength.wavelength' $WORKDIR/$PDBID.hkl.cif` != 0) then
   #Get the wavelenghth
   set WAVELENGTH = `grep '_diffrn_radiation_wavelength.wavelength' $WORKDIR/$PDBID.hkl.cif | awk '{print $2}'`
-else if ($WAVELPDB != '0.00000') then
+else if ($WAVELPDB != '' && $WAVELPDB != '?') then
   set WAVELENGTH = $WAVELPDB
 else
   set WAVELENGTH = 'NA'
-  if ($DYEAR > 2006) then
-    echo "COMMENT: wavelength unknown" >> $DEBUG
-    echo "PDB-REDO,$PDBID"             >> $DEBUG
-  endif
 endif
 
 #Add the wavelength to the MTZ file
@@ -3035,7 +3006,7 @@ echo "Space group          : $SPACEGROUP" | tee -a $LOG
 echo "Resolution (pdb)     : $RESOLUTION" | tee -a $LOG
 echo "Resolution (data)    : $DATARESH"   | tee -a $LOG  #Data resolution (only reflections with F/SIGF>1.0 are used)
 echo "Lowest resolution    : $DATARESL"   | tee -a $LOG #Lowest resolution in the dataset (only reflections with F/SIGF>1.0 are used)
-if ($RFACT == 0.9990) then
+if ($RFACT == '?' || $RFACT == '') then
   echo "Reported Rfactor     : none"   | tee -a $LOG
   set RFACT = "NA"
   set RHEAD = 0
@@ -3043,7 +3014,7 @@ else
   echo "Reported Rfactor     : $RFACT" | tee -a $LOG
   set RHEAD = 1
 endif
-if ($RFREE == 0.9990) then
+if ($RFREE == '?' || $RFREE == '') then
   echo "Reported R-free      : none" | tee -a $LOG
   set RFHEAD = 0
   set RFREE = "NA"
@@ -3062,7 +3033,12 @@ echo "Reflections (data)   : $REFCNT"   | tee -a $LOG
 echo "Work set size        : $WORKCNT"  | tee -a $LOG
 echo "Test set size (data) : $TSTCNT ($TSTPRC%)" | tee -a $LOG
 echo "Test set size (used) : $NTSTCNT"   | tee -a $LOG
-echo "Completeness (pdb)   : $COMPLETEH" | tee -a $LOG
+if ($COMPLETEH == '?' || $COMPLETEH == '') then
+  echo "Completeness (pdb)   : NA" | tee -a $LOG
+  set COMPLETEH = 0.0
+else
+  echo "Completeness (pdb)   : $COMPLETEH" | tee -a $LOG
+endif  
 echo "Completeness (used)  : $COMPLETED" | tee -a $LOG
 echo "Wavelength           : $WAVELENGTH"| tee -a $LOG
 if ($TWINA != "") then
@@ -3141,7 +3117,7 @@ endif
 #Set up scaling function
 set SCALING = "lssc function a sigma $EXPSIG"
 
-#Restarting oint with previous PDB-REDO entry
+#Restarting point with previous PDB-REDO entry
 previousredo:
 
 #TLS settings
@@ -3166,7 +3142,7 @@ endif
 
 #Run refmac for 0 cycles to check R-factors (with TLS). PROGRAM: REFMAC
 refmacat \
-XYZIN  $WORKDIR/${PDBID}_prepped.pdb \
+XYZIN  $WORKDIR/${PDBID}_prepped.cif \
 XYZOUT $WORKDIR/${PDBID}_0cyc$ISTLS.pdb \
 HKLIN  $WORKDIR/$PDBID.mtz \
 HKLOUT $WORKDIR/${PDBID}_0cyc$ISTLS.mtz \
@@ -3242,28 +3218,49 @@ if ($status || `grep -c 'Error: Fatal error. Cannot continue' $WORKDIR/${PDBID}_
     exit(1)
   endif
   #See if there is an unknown compound
-  if (`grep -c 'Error: Provide restraint cif file(s) for ' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0) then
+  if (`grep -c 'Error: Provide restraint cif file(s) for ' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0 && $NEWREST == 0) then
     if ($LOCAL == 1) then
-      #Give the long error message
+      #Give the long error message and stop.
       echo " " | tee -a $LOG
       echo "FATAL ERROR!" | tee -a $LOG
       echo "------------" | tee -a $LOG
-      echo "Input coordinates have an unknown compound: `grep 'Error: Provide restraint cif file(s) for' $WORKDIR/${PDBID}_0cyc$ISTLS.log | cut -c 42-`" | tee -a $LOG
+      echo "Input coordinates have unknown compound(s): `grep 'Error: Provide restraint cif file(s) for' $WORKDIR/${PDBID}_0cyc$ISTLS.log | cut -c 42-`" | tee -a $LOG
       echo "Please provide a restraint file for this compound." | tee -a $LOG
+
+      #Write out WHY_NOT mesage
+      echo "COMMENT: refmac: unknown compound" >> $WHYNOT
+      echo "PDB-REDO,$PDBID"                   >> $WHYNOT
+      if ($SERVER == 1) then
+        #Write out status files
+        touch $STDIR/stoppingProcess.txt
+        touch $STDIR/processStopped.txt
+      endif    
+      cd $BASE
+      exit(1)     
     else
-      #Give the simple error message
-      echo " o Unknown compound `grep 'Error: Provide restraint cif file(s) for' $WORKDIR/${PDBID}_0cyc$ISTLS.log | cut -c 42-`. Cannot continue." | tee -a $LOG
+      #Give the simple error message and generate restraints (only once)
+      echo " o Unknown compound(s), generating restraints for `grep 'Error: Provide restraint cif file(s) for' $WORKDIR/${PDBID}_0cyc$ISTLS.log | cut -c 42- | tr -d '[:lower:]' | tr -d '()'`"| tee -a $LOG
+      foreach HETID (`grep 'Error: Provide restraint cif file(s) for' $WORKDIR/${PDBID}_0cyc$ISTLS.log | cut -c 42- | tr -d '[:lower:]' | tr -d '()' | tr ',' ' '`)
+        set S1 = `echo $HETID | awk '{print tolower(substr ($1, 1, 1))}'`
+        if (! -e $CLIBD_MON/$S1/$HETID.cif) then
+          #Only make a new restraint file if it does not exist yet
+          $TOOLS/make_dic.csh $HETID $WORKDIR/make_dic
+        endif  
+      end
+      
+      #Start again 
+      set NEWREST = 1
+      goto previousredo
     endif
-    #Write out WHY_NOT mesage
-    echo "COMMENT: refmac: unknown compound" >> $WHYNOT
-    echo "PDB-REDO,$PDBID"                   >> $WHYNOT
-    if ($SERVER == 1) then
-      #Write out status files
-      touch $STDIR/stoppingProcess.txt
-      touch $STDIR/processStopped.txt
-    endif    
+  else
+    #Give the short error message
+    echo " o Restraint generation problem. Cannot continue." | tee -a $LOG
+
+    #Give WHY_NOT comment
+    echo "COMMENT: refmacat cannot generate all restraints" >> $WHYNOT
+    echo "PDB-REDO,$PDBID"                                  >> $WHYNOT
     cd $BASE
-    exit(1)
+    exit(1)    
   endif
   
   #Check to see if there are dictionary problems
@@ -3308,46 +3305,46 @@ if ($status || `grep -c 'Error: Fatal error. Cannot continue' $WORKDIR/${PDBID}_
       echo "COMMENT: refmac: residue or atom naming conflict" >> $WHYNOT
       echo "PDB-REDO,$PDBID"                                  >> $WHYNOT
 
-    #Check for problems making a compound description
-    else if (`grep -a -c 'is not completely connected' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0) then
+#     #Check for problems making a compound description
+#     else if (`grep -a -c 'is not completely connected' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0) then
+# 
+#       #Give PDB_RED mode-specific error messages
+#       if ($LOCAL == 1) then
+#         #Give the long error message
+#         echo " " | tee -a $LOG
+#         echo "FATAL ERROR!" | tee -a $LOG
+#         echo "------------" | tee -a $LOG
+#         echo "Cannot create restraint file for residue:" | tee -a $LOG
+#         grep 'program will create complete description for' $WORKDIR/${PDBID}_0cyc$ISTLS.log | cut -d ':' -f 2 | sort -u | tee -a $LOG
+#         echo "Please, supply a restraint file using '--restin=Your_restraints.cif'." | tee -a $LOG
+#       else
+#         #Give the short error message
+#         echo " o Cannot create restraint file. Cannot continue." | tee -a $LOG
+#       endif
+# 
+#       #Write WHY_NOT comment
+#       echo "COMMENT: refmac: cannot create restraint file" >> $WHYNOT
+#       echo "PDB-REDO,$PDBID"                               >> $WHYNOT
 
-      #Give PDB_RED mode-specific error messages
-      if ($LOCAL == 1) then
-        #Give the long error message
-        echo " " | tee -a $LOG
-        echo "FATAL ERROR!" | tee -a $LOG
-        echo "------------" | tee -a $LOG
-        echo "Cannot create restraint file for residue:" | tee -a $LOG
-        grep 'program will create complete description for' $WORKDIR/${PDBID}_0cyc$ISTLS.log | cut -d ':' -f 2 | sort -u | tee -a $LOG
-        echo "Please, supply a restraint file using '--restin=Your_restraints.cif'." | tee -a $LOG
-      else
-        #Give the short error message
-        echo " o Cannot create restraint file. Cannot continue." | tee -a $LOG
-      endif
-
-      #Write WHY_NOT comment
-      echo "COMMENT: refmac: cannot create restraint file" >> $WHYNOT
-      echo "PDB-REDO,$PDBID"                               >> $WHYNOT
-
-    #Check for NCS alignment problems
-    else if (`grep -a -c 'ncs_ncs_generate.f90' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0 && ! -e $WORKDIR/renumber.json) then
-        
-      #Renumber the PDB file and start again
-      cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.rnbterror.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-      
-      cp $WORKDIR/${PDBID}_prepped.pdb $WORKDIR/${PDBID}_prepped.bak
-      $TOOLS/rnbterror -v \
-      -jsonout $WORKDIR/renumber.json \
-      -pdbin $WORKDIR/${PDBID}_prepped.bak \
-      -pdbout $WORKDIR/${PDBID}_prepped.pdb > $WORKDIR/renumber.log
-          
-      #Write DEBUG message
-      echo " o Problem with NCS alignment. Renumbering terminal residues and restarting." | tee -a $LOG
-      echo "COMMENT: residues renumbered" >> $DEBUG
-      echo "PDB-REDO,$PDBID"              >> $DEBUG  
-     
-     #Start again
-      goto renumbered
+#     #Check for NCS alignment problems
+#     else if (`grep -a -c 'ncs_ncs_generate.f90' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0 && ! -e $WORKDIR/renumber.json) then
+#         
+#       #Renumber the PDB file and start again
+#       cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.rnbterror.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
+#       
+#       cp $WORKDIR/${PDBID}_prepped.pdb $WORKDIR/${PDBID}_prepped.bak
+#       $TOOLS/rnbterror -v \
+#       -jsonout $WORKDIR/renumber.json \
+#       -pdbin $WORKDIR/${PDBID}_prepped.bak \
+#       -pdbout $WORKDIR/${PDBID}_prepped.pdb > $WORKDIR/renumber.log
+#           
+#       #Write DEBUG message
+#       echo " o Problem with NCS alignment. Renumbering terminal residues and restarting." | tee -a $LOG
+#       echo "COMMENT: residues renumbered" >> $DEBUG
+#       echo "PDB-REDO,$PDBID"              >> $DEBUG  
+#      
+#       #Start again
+#       goto renumbered
 
     #All other problems
     else
@@ -3367,176 +3364,176 @@ if ($status || `grep -c 'Error: Fatal error. Cannot continue' $WORKDIR/${PDBID}_
 endif
 
 
-#Check to see whether a new ligand was encountered (only if no extra restraints were provided).
-if ("$INREST" == "") then
-  if(-e $WORKDIR/${PDBID}_het.cif) then
-    echo " " | tee -a $LOG
-    echo -n " o New ligand encountered, retrying " | tee -a $LOG
-
-    #Backup old files
-    cp $WORKDIR/${PDBID}_0cyc$ISTLS.log $WORKDIR/${PDBID}_0cycv1.log
-    if(-e $WORKDIR/${PDBID}_0cyc$ISTLS.pdb) then
-      cp $WORKDIR/${PDBID}_0cyc$ISTLS.pdb $WORKDIR/${PDBID}_0cycv1.pdb
-    endif
-
-    #Start using the new ligand library
-    set LIBLIN = `echo LIBIN $WORKDIR/${PDBID}_het.cif LIBOUT $WORKDIR/${PDBID}_het2.cif`
-
-    #Rerun refmac for 0 cycles
-    refmacat \
-    XYZIN  $WORKDIR/${PDBID}_prepped.pdb \
-    XYZOUT $WORKDIR/${PDBID}_0cyc$ISTLS.pdb \
-    HKLIN  $WORKDIR/$PDBID.mtz \
-    HKLOUT $WORKDIR/${PDBID}_0cyc$ISTLS.mtz \
-    $LIBLIN \
-    $TLSLIN \
-    $SCATLIN \
-<<eof >& $WORKDIR/${PDBID}_0cyc$ISTLS.log
-      $SCATTERCMD
-      make check NONE
-      make hydrogen $HYDROGEN hout NO peptide NO cispeptide YES -
-	ssbridge $SSBOND $RSYMM $SUGAR $CONNECTIVITY link NO
-      refi type REST resi MLKF meth CGMAT bref MIXE
-      $REFIRES
-      ncyc 0
-      tlsd waters exclude
-      scal type $SOLVENT $SCALING
-      solvent YES
-      $MASKPAR
-      $LOWMEM
-      weight $WGTSIG MATRIX 0.5
-      monitor MEDIUM torsion 10.0 distance 10.0 angle 10.0 plane 10.0 -
-        chiral 10.0  bfactor 10.0 bsphere  10.0 rbond 10.0 ncsr  10.0
-      $NCSTYPE
-      $NCSALIGN
-      $NCSNEIGH
-      $NCSSTRICT
-      labin  FP=FP SIGFP=SIGFP FREE=FREE $PHASES $ANOMCOEF
-      $ANOMCMD
-      pdbout copy remarks 200 280 350
-      pdbout copy expdta
-      NOHARVEST
-      END
-eof
-    if($status) then
-      #Try to give a specific error message
-      #Check to see if there is a problem with alternate residues
-      if (`grep -c 'different residues have the same number' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0) then
-        if ($LOCAL == 1) then
-          #Give the long error message
-          echo " " | tee -a $LOG
-          echo "FATAL ERROR!" | tee -a $LOG
-          echo "------------" | tee -a $LOG
-          echo "Refmac had problems using these residues with alternate identities:" | tee -a $LOG
-          grep 'ERROR:' $WORKDIR/${PDBID}_0cyc$ISTLS.log | cut -c 12- | tee -a $LOG
-          echo "This problem may be solved by renumbering residues or by ensuring that" | tee -a $LOG
-          echo "alternate atoms directly follow eachother in the PDB file." | tee -a $LOG
-          echo "See the file $WORKDIR/${PDBID}_0cyc$ISTLS.log for details."  | tee -a $LOG
-        else
-          #Give the simple error message
-          echo " " | tee -a $LOG
-          echo " o Cannot use structure with alternate residues" | tee -a $LOG
-        endif
-        #Write out WHY_NOT mesage
-        echo "COMMENT: refmac: error with alternate residues" >> $WHYNOT
-        echo "PDB-REDO,$PDBID"                                >> $WHYNOT
-      endif
-
-      #Check to see if there are dictionary problems
-      if (! -e $WORKDIR/${PDBID}_het2.cif) then
-        #Check for atoms not described in the dictionary
-        if (`grep -a -c 'is absent in the library' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0) then
-          if ($LOCAL == 1) then
-            #Give the long error message
-            echo " " | tee -a $LOG
-            echo "FATAL ERROR!" | tee -a $LOG
-            echo "------------" | tee -a $LOG
-            echo "Some residues have (atoms with) naming conflicts." | tee -a $LOG
-            echo "Please, use standard atom and residue names in your input PDB file or upload a custom restraint file." | tee -a $LOG
-            echo " " | tee -a $LOG
-            echo "Residue  PDB standard description" | tee -a $LOG
-            echo "---------------------------------" | tee -a $LOG
-            foreach HETID (`grep 'is absent in the library' $WORKDIR/${PDBID}_0cyc$ISTLS.log | cut -c 22-37 | sort -u`)
-              set HETID1 = `echo $HETID |cut -c 1-1`
-              #Is the entry in LigandExpo
-              wget --spider -q http://ligand-expo.rcsb.org/reports/$HETID1/$HETID
-              if ($status) then
-                echo "$HETID      New compound: make sure all $HETID residues are consistent within the input PDB" | tee -a $LOG
-              else
-                echo "$HETID      http://ligand-expo.rcsb.org/reports/$HETID1/$HETID" | tee -a $LOG
-              endif
-            end
-            echo " " | tee -a $LOG
-
-            #Give server-specific extra information
-            if ($SERVER == 1) then
-              echo "Details from Refmac output:" | tee -a $LOG
-              grep ' ERROR :' $WORKDIR/${PDBID}_0cyc$ISTLS.log | tee -a $LOG
-            else
-              echo "See the file $WORKDIR/${PDBID}_0cyc$ISTLS.log for details." | tee -a $LOG
-            endif
-          else
-            #Give the short error message
-            echo " " | tee -a $LOG
-            echo " o Residue or atom naming conflict. Cannot continue." | tee -a $LOG
-          endif
-          echo "COMMENT: refmac: residue or atom naming conflict" >> $WHYNOT
-          echo "PDB-REDO,$PDBID"                                  >> $WHYNOT
-        #Check for residues for which a restraint file cannot be generated
-        else if (`grep -a -c 'is not completely connected' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0) then
-          if ($LOCAL == 1) then
-            #Give the long error message
-            echo " " | tee -a $LOG
-            echo "FATAL ERROR!" | tee -a $LOG
-            echo "------------" | tee -a $LOG
-            echo "Cannot create restraint file for residue:" | tee -a $LOG
-            grep 'program will create complete description for' $WORKDIR/${PDBID}_0cyc$ISTLS.log | cut -d ':' -f 2 | sort -u
-            echo "Please, supply a restraint file using '--restin=Your_restraints.cif'." | tee -a $LOG
-          else
-            #Give the short error message
-            echo " " | tee -a $LOG
-            echo " o Cannot create restraint file. Cannot continue." | tee -a $LOG
-          endif
-          echo "COMMENT: refmac: cannot create restraint file" >> $WHYNOT
-          echo "PDB-REDO,$PDBID"                               >> $WHYNOT
-        #Check for problems with local NCS restraints
-        else if (`grep -a -c 'ncs_ncs_generate.f90' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0 && ! -e $WORKDIR/renumber.json) then
-          #Renumber the PDB file and start again
-          cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.rnbterror.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-          cp $WORKDIR/${PDBID}_prepped.pdb $WORKDIR/${PDBID}_prepped.bak
-          
-          $TOOLS/rnbterror \
-          -jsonout $WORKDIR/renumber.json \
-          -pdbin $WORKDIR/${PDBID}_prepped.bak \
-          -pdbout $WORKDIR/${PDBID}_prepped.pdb > $WORKDIR/renumber.log
-          
-          #Write DEBUG message
-          echo " " | tee -a $LOG
-          echo " o Problem with NCS alignment. Renumbering terminal residues and restarting." | tee -a $LOG
-          echo "COMMENT: residues renumbered" >> $DEBUG
-          echo "PDB-REDO,$PDBID"              >> $DEBUG  
-          
-          #Start again
-          goto renumbered
-         
-        else
-          echo " " | tee -a $LOG
-          echo " o Problem with refmac. Cannot continue." | tee -a $LOG
-          echo "COMMENT: refmac: error in initial R-free calculation" >> $WHYNOT
-          echo "PDB-REDO,$PDBID"                                      >> $WHYNOT
-        endif
-      endif
-      #Stop the run
-      if ($SERVER == 1) then
-        #Write out status files
-        touch $STDIR/stoppingProcess.txt
-        touch $STDIR/processStopped.txt
-      endif
-      cd $BASE
-      exit(1)
-    endif
-  endif
-endif
+# #Check to see whether a new ligand was encountered (only if no extra restraints were provided).
+# if ("$INREST" == "") then
+#   if(-e $WORKDIR/${PDBID}_het.cif) then
+#     echo " " | tee -a $LOG
+#     echo -n " o New ligand encountered, retrying " | tee -a $LOG
+# 
+#     #Backup old files
+#     cp $WORKDIR/${PDBID}_0cyc$ISTLS.log $WORKDIR/${PDBID}_0cycv1.log
+#     if(-e $WORKDIR/${PDBID}_0cyc$ISTLS.pdb) then
+#       cp $WORKDIR/${PDBID}_0cyc$ISTLS.pdb $WORKDIR/${PDBID}_0cycv1.pdb
+#     endif
+# 
+#     #Start using the new ligand library
+#     set LIBLIN = `echo LIBIN $WORKDIR/${PDBID}_het.cif LIBOUT $WORKDIR/${PDBID}_het2.cif`
+# 
+#     #Rerun refmac for 0 cycles
+#     refmacat \
+#     XYZIN  $WORKDIR/${PDBID}_prepped.pdb \
+#     XYZOUT $WORKDIR/${PDBID}_0cyc$ISTLS.pdb \
+#     HKLIN  $WORKDIR/$PDBID.mtz \
+#     HKLOUT $WORKDIR/${PDBID}_0cyc$ISTLS.mtz \
+#     $LIBLIN \
+#     $TLSLIN \
+#     $SCATLIN \
+# <<eof >& $WORKDIR/${PDBID}_0cyc$ISTLS.log
+#       $SCATTERCMD
+#       make check NONE
+#       make hydrogen $HYDROGEN hout NO peptide NO cispeptide YES -
+# 	ssbridge $SSBOND $RSYMM $SUGAR $CONNECTIVITY link NO
+#       refi type REST resi MLKF meth CGMAT bref MIXE
+#       $REFIRES
+#       ncyc 0
+#       tlsd waters exclude
+#       scal type $SOLVENT $SCALING
+#       solvent YES
+#       $MASKPAR
+#       $LOWMEM
+#       weight $WGTSIG MATRIX 0.5
+#       monitor MEDIUM torsion 10.0 distance 10.0 angle 10.0 plane 10.0 -
+#         chiral 10.0  bfactor 10.0 bsphere  10.0 rbond 10.0 ncsr  10.0
+#       $NCSTYPE
+#       $NCSALIGN
+#       $NCSNEIGH
+#       $NCSSTRICT
+#       labin  FP=FP SIGFP=SIGFP FREE=FREE $PHASES $ANOMCOEF
+#       $ANOMCMD
+#       pdbout copy remarks 200 280 350
+#       pdbout copy expdta
+#       NOHARVEST
+#       END
+# eof
+#     if($status) then
+#       #Try to give a specific error message
+#       #Check to see if there is a problem with alternate residues
+#       if (`grep -c 'different residues have the same number' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0) then
+#         if ($LOCAL == 1) then
+#           #Give the long error message
+#           echo " " | tee -a $LOG
+#           echo "FATAL ERROR!" | tee -a $LOG
+#           echo "------------" | tee -a $LOG
+#           echo "Refmac had problems using these residues with alternate identities:" | tee -a $LOG
+#           grep 'ERROR:' $WORKDIR/${PDBID}_0cyc$ISTLS.log | cut -c 12- | tee -a $LOG
+#           echo "This problem may be solved by renumbering residues or by ensuring that" | tee -a $LOG
+#           echo "alternate atoms directly follow eachother in the PDB file." | tee -a $LOG
+#           echo "See the file $WORKDIR/${PDBID}_0cyc$ISTLS.log for details."  | tee -a $LOG
+#         else
+#           #Give the simple error message
+#           echo " " | tee -a $LOG
+#           echo " o Cannot use structure with alternate residues" | tee -a $LOG
+#         endif
+#         #Write out WHY_NOT mesage
+#         echo "COMMENT: refmac: error with alternate residues" >> $WHYNOT
+#         echo "PDB-REDO,$PDBID"                                >> $WHYNOT
+#       endif
+# 
+#       #Check to see if there are dictionary problems
+#       if (! -e $WORKDIR/${PDBID}_het2.cif) then
+#         #Check for atoms not described in the dictionary
+#         if (`grep -a -c 'is absent in the library' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0) then
+#           if ($LOCAL == 1) then
+#             #Give the long error message
+#             echo " " | tee -a $LOG
+#             echo "FATAL ERROR!" | tee -a $LOG
+#             echo "------------" | tee -a $LOG
+#             echo "Some residues have (atoms with) naming conflicts." | tee -a $LOG
+#             echo "Please, use standard atom and residue names in your input PDB file or upload a custom restraint file." | tee -a $LOG
+#             echo " " | tee -a $LOG
+#             echo "Residue  PDB standard description" | tee -a $LOG
+#             echo "---------------------------------" | tee -a $LOG
+#             foreach HETID (`grep 'is absent in the library' $WORKDIR/${PDBID}_0cyc$ISTLS.log | cut -c 22-37 | sort -u`)
+#               set HETID1 = `echo $HETID |cut -c 1-1`
+#               #Is the entry in LigandExpo
+#               wget --spider -q http://ligand-expo.rcsb.org/reports/$HETID1/$HETID
+#               if ($status) then
+#                 echo "$HETID      New compound: make sure all $HETID residues are consistent within the input PDB" | tee -a $LOG
+#               else
+#                 echo "$HETID      http://ligand-expo.rcsb.org/reports/$HETID1/$HETID" | tee -a $LOG
+#               endif
+#             end
+#             echo " " | tee -a $LOG
+# 
+#             #Give server-specific extra information
+#             if ($SERVER == 1) then
+#               echo "Details from Refmac output:" | tee -a $LOG
+#               grep ' ERROR :' $WORKDIR/${PDBID}_0cyc$ISTLS.log | tee -a $LOG
+#             else
+#               echo "See the file $WORKDIR/${PDBID}_0cyc$ISTLS.log for details." | tee -a $LOG
+#             endif
+#           else
+#             #Give the short error message
+#             echo " " | tee -a $LOG
+#             echo " o Residue or atom naming conflict. Cannot continue." | tee -a $LOG
+#           endif
+#           echo "COMMENT: refmac: residue or atom naming conflict" >> $WHYNOT
+#           echo "PDB-REDO,$PDBID"                                  >> $WHYNOT
+#         #Check for residues for which a restraint file cannot be generated
+#         else if (`grep -a -c 'is not completely connected' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0) then
+#           if ($LOCAL == 1) then
+#             #Give the long error message
+#             echo " " | tee -a $LOG
+#             echo "FATAL ERROR!" | tee -a $LOG
+#             echo "------------" | tee -a $LOG
+#             echo "Cannot create restraint file for residue:" | tee -a $LOG
+#             grep 'program will create complete description for' $WORKDIR/${PDBID}_0cyc$ISTLS.log | cut -d ':' -f 2 | sort -u
+#             echo "Please, supply a restraint file using '--restin=Your_restraints.cif'." | tee -a $LOG
+#           else
+#             #Give the short error message
+#             echo " " | tee -a $LOG
+#             echo " o Cannot create restraint file. Cannot continue." | tee -a $LOG
+#           endif
+#           echo "COMMENT: refmac: cannot create restraint file" >> $WHYNOT
+#           echo "PDB-REDO,$PDBID"                               >> $WHYNOT
+#         #Check for problems with local NCS restraints
+#         else if (`grep -a -c 'ncs_ncs_generate.f90' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0 && ! -e $WORKDIR/renumber.json) then
+#           #Renumber the PDB file and start again
+#           cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.rnbterror.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
+#           cp $WORKDIR/${PDBID}_prepped.pdb $WORKDIR/${PDBID}_prepped.bak
+#           
+#           $TOOLS/rnbterror \
+#           -jsonout $WORKDIR/renumber.json \
+#           -pdbin $WORKDIR/${PDBID}_prepped.bak \
+#           -pdbout $WORKDIR/${PDBID}_prepped.pdb > $WORKDIR/renumber.log
+#           
+#           #Write DEBUG message
+#           echo " " | tee -a $LOG
+#           echo " o Problem with NCS alignment. Renumbering terminal residues and restarting." | tee -a $LOG
+#           echo "COMMENT: residues renumbered" >> $DEBUG
+#           echo "PDB-REDO,$PDBID"              >> $DEBUG  
+#           
+#           #Start again
+#           goto renumbered
+#          
+#         else
+#           echo " " | tee -a $LOG
+#           echo " o Problem with refmac. Cannot continue." | tee -a $LOG
+#           echo "COMMENT: refmac: error in initial R-free calculation" >> $WHYNOT
+#           echo "PDB-REDO,$PDBID"                                      >> $WHYNOT
+#         endif
+#       endif
+#       #Stop the run
+#       if ($SERVER == 1) then
+#         #Write out status files
+#         touch $STDIR/stoppingProcess.txt
+#         touch $STDIR/processStopped.txt
+#       endif
+#       cd $BASE
+#       exit(1)
+#     endif
+#   endif
+# endif
 
 #Check the value for LOGSTEP and RBLS (only once)
 if ($GOTOLD == 0) then
@@ -3548,6 +3545,12 @@ if ($GOTOLD == 0) then
   endif
 endif  
 
+#Check for hybrid64 warning
+
+if (`grep -c 'Using hybrid-36. Header part may be inaccurate.' $WORKDIR/${PDBID}_0cyc$ISTLS.log` > 0) then
+  @ LOGSTEP = ($LOGSTEP + 1)
+endif  
+  
 #Get calculated R-factor
 set PRCAL1 = `tail -n $LOGSTEP $WORKDIR/${PDBID}_0cyc$ISTLS.log | head -n 1 | awk '{print $2}'`
 set TRFREE = `tail -n $LOGSTEP $WORKDIR/${PDBID}_0cyc$ISTLS.log | head -n 1 | awk '{print $3}'`
@@ -3560,7 +3563,7 @@ if ($ORITLS == 1) then
 
   #Rerun refmac for 0 cycles, again
   refmacat \
-  XYZIN  $WORKDIR/${PDBID}_prepped.pdb \
+  XYZIN  $WORKDIR/${PDBID}_prepped.cif \
   XYZOUT $WORKDIR/${PDBID}_0cyc$ISTLS.pdb \
   HKLIN  $WORKDIR/$PDBID.mtz \
   HKLOUT $WORKDIR/${PDBID}_0cyc$ISTLS.mtz \
@@ -3651,7 +3654,7 @@ if ($LEGACY == 0 && $DOTWIN == 1) then
 
     #Run Refmac
     refmacat \
-    XYZIN  $WORKDIR/${PDBID}_prepped.pdb \
+    XYZIN  $WORKDIR/${PDBID}_prepped.cif \
     XYZOUT $WORKDIR/${PDBID}_0cyc.pdb \
     HKLIN  $WORKDIR/$PDBID.mtz \
     HKLOUT $WORKDIR/${PDBID}_0cyc.mtz \
@@ -3822,7 +3825,7 @@ if ($DORB == 1 && $RFACT != "NA" &&`$TOOLS/fitr $RFACT $RFREE $RCAL $RFCAL` == 0
 
   #Run Refmac
   refmacat \
-  XYZIN $WORKDIR/${PDBID}_prepped.pdb \
+  XYZIN $WORKDIR/${PDBID}_prepped.cif \
   XYZOUT $WORKDIR/${PDBID}_refmacrb.pdb \
   HKLIN $WORKDIR/$PDBID.mtz \
   HKLOUT $WORKDIR/${PDBID}_refmacrb.mtz \
@@ -3867,13 +3870,13 @@ eof
     exit(1)
   endif
 
-  #Transplant the LINKs if needed
-  if (`grep -c ^LINK $WORKDIR/${PDBID}_prepped.pdb` != 0 && `grep -c ^LINK $WORKDIR/${PDBID}_refmacrb.pdb` == 0) then
-    cp  $WORKDIR/${PDBID}_refmacrb.pdb $WORKDIR/${PDBID}_refmacrb.bak
-    grep -B 100000 ^CRYST1 $WORKDIR/${PDBID}_refmacrb.bak | grep -v ^CRYST1 > $WORKDIR/${PDBID}_refmacrb.pdb
-    grep ^LINK $WORKDIR/${PDBID}_prepped.pdb >> $WORKDIR/${PDBID}_refmacrb.pdb
-    grep -A 250000 ^CRYST1 $WORKDIR/${PDBID}_refmacrb.bak >> $WORKDIR/${PDBID}_refmacrb.pdb
-  endif
+#   #Transplant the LINKs if needed
+#   if (`grep -c ^LINK $WORKDIR/${PDBID}_prepped.pdb` != 0 && `grep -c ^LINK $WORKDIR/${PDBID}_refmacrb.pdb` == 0) then
+#     cp  $WORKDIR/${PDBID}_refmacrb.pdb $WORKDIR/${PDBID}_refmacrb.bak
+#     grep -B 100000 ^CRYST1 $WORKDIR/${PDBID}_refmacrb.bak | grep -v ^CRYST1 > $WORKDIR/${PDBID}_refmacrb.pdb
+#     grep ^LINK $WORKDIR/${PDBID}_prepped.pdb >> $WORKDIR/${PDBID}_refmacrb.pdb
+#     grep -A 250000 ^CRYST1 $WORKDIR/${PDBID}_refmacrb.bak >> $WORKDIR/${PDBID}_refmacrb.pdb
+#   endif
 
 
   #Now do another restrained refinement run to include the TLS contribution (if needed)
@@ -4586,8 +4589,8 @@ set BSET  = `echo $URESO $BWILS $BAVER | awk '{if ($1 > 3.99 || $2 < 0) {BSET = 
 set TBCMD = "bfac set $BSET"
 
 
-############################################# Generate external restraints ###############################################
-if ($GOT_NUC == 'T' || $HBONDREST == 1 || $DOHOMOLOGY == 1) then
+############################################# Generate external restraints (only once) ##############################################
+if (($GOT_NUC == 'T' || $HBONDREST == 1 || $DOHOMOLOGY == 1) && ! -e $WORKDIR/nucleic.rest && ! -e $WORKDIR/homology.rest && ! -e $WORKDIR/hbond.rest) then
   echo "" | tee -a $LOG
   echo "" | tee -a $LOG
   echo "****** Structure specific restraints and targets ******" | tee -a $LOG
@@ -5205,7 +5208,381 @@ eof
   set RCAL  = `grep -a -A 2 'Ncyc    Rfact    Rfree     FOM' $WORKDIR/${PDBID}_all$URESO.log | tail -n 1 | awk '{print $2}'`
   set RFCAL = `grep -a -A 2 'Ncyc    Rfact    Rfree     FOM' $WORKDIR/${PDBID}_all$URESO.log | tail -n 1 | awk '{print $3}'`
 
+  #Start from the resolution based settings
+  set NPRUNE = 0
   goto resobasedsettings
+endif
+
+################################################ TLS group optimisation ##################################################
+
+#Only do this if TLS refinement isn't surpressed or if anisotropic B-factors aren't obvious
+if ($DOTLS == 1 && `echo $CWORKCNT $ATMCNT | awk '{if ($1/$2 > 30.0) {print "ANISOT"} else {print "ISOT"}}'` == "ISOT") then
+  echo " " | tee -a $LOG
+  echo " " | tee -a $LOG
+  echo "****** TLS group optimisation ******" | tee -a $LOG
+
+  #Optimise TLS groups iff any definitions exist.
+  set NTLS = `find $WORKDIR -name "????.tls" | wc -l`
+  if ($NTLS != 0) then
+    echo "-Testing $NTLS TLS group definition(s)" | tee -a $LOG
+    
+    #Setup TLS command
+    set TLSCMD  = `echo refi tlsc $TLSCYCLE`
+    
+    #Keep only the TLS group definitions, recalculate the origin and the tensors
+    if (-e $WORKDIR/${PDBID}.tls) then
+      cp $WORKDIR/${PDBID}.tls $WORKDIR/${PDBID}.tls_original
+      grep -E 'TLS|RANGE|^ ' $WORKDIR/${PDBID}.tls_original > $WORKDIR/${PDBID}.tls
+    endif
+
+    #Maximise the used CPU time
+    limit cputime 24h
+
+    #Run refmac with different TLS group configurations
+    foreach TLSG (`ls -Sr ????.tls | cut -c 1-4`)
+
+      #Return label for job launching
+ttestrunning:
+
+      #Only launch new jobs when the number of cores is not exceeded
+      #Strangely direct line counting on the jobs output doesn't work, so a temporary file is needed
+      jobs > $WORKDIR/jobs.log
+      if (`cat $WORKDIR/jobs.log | wc -l` < $NPROC) then
+
+        #Run refmac
+        refmacat \
+        XYZIN  $WORKDIR/${PDBID}_0cyc.pdb \
+        XYZOUT $WORKDIR/${PDBID}_ttest$TLSG.pdb \
+        HKLIN  $WORKDIR/$PDBID.mtz \
+        HKLOUT $WORKDIR/${PDBID}_ttest$TLSG.mtz \
+        $LIBLIN \
+        TLSIN $WORKDIR/$TLSG.tls TLSOUT $WORKDIR/${TLSG}_out.tls \
+        $SCATLIN \
+<<eof >& $WORKDIR/${PDBID}_ttest$TLSG.log &
+          $SCATTERCMD
+          make check NONE
+          make hydrogen $HYDROGEN hout NO peptide NO cispeptide YES -
+           ssbridge $SSBOND $RSYMM $SUGAR $CONNECTIVITY link NO
+          make newligand continue
+          $TBCMD
+          refi type REST resi MLKF meth CGMAT bref ISOT
+          $REFIRES
+          $TLSCMD
+          tlsd waters exclude
+          ncyc 0
+          scal type $SOLVENT $SCALING
+          solvent YES
+          $MASKPAR
+          $LOWMEM
+          weight AUTO
+          monitor MEDIUM -
+            torsion 10.0 distance 10.0 angle 10.0 plane 10.0 chiral 10.0 -
+            bfactor 10.0 bsphere  10.0 rbond 10.0 ncsr  10.0
+          $NCSTYPE
+          $NCSALIGN
+          $NCSNEIGH
+          $NCSSTRICT
+          $TWIN
+          blim 2.0 999.0
+          labin  FP=FP SIGFP=SIGFP FREE=FREE $PHASES $ANOMCOEF
+          $ANOMCMD
+          pdbout copy expdta
+          pdbout copy remarks 200 280 350
+          NOHARVEST
+          $HOMOLWGTCMD
+          $HOMOLCMD
+          $HBONDWGTCMD
+          $HBONDCMD
+          kill $TOOLS/pdb_redo.refmac
+          END
+eof
+      else
+        #Wait a bit to start again
+        sleep 10
+        goto ttestrunning
+      endif
+    end
+
+    #Wait for the jobs to finish
+    wait
+
+    #Unset the CPU time limit
+    limit cputime unlimited
+
+    #Check for errors and report results
+    foreach TLSG (`ls -Sr ????.tls | cut -c 1-4`)
+      if (! -e $WORKDIR/${TLSG}_out.tls) then
+        echo " o Problem with Refmac using $TLSG.tls" | tee -a $LOG
+        mv $WORKDIR/$TLSG.tls $WORKDIR/$TLSG.notls
+        @ NTLS = $NTLS - 1 
+      else
+        #Mine out the R-free and report
+        set TFREE = `tail -n $LOGSTEP $WORKDIR/${PDBID}_ttest$TLSG.log | head -n 1 | awk '{print $3}'`
+        echo " o Tested tls groups from $TLSG.tls (R-free = $TFREE)" | tee -a $LOG
+      endif
+    end
+
+    #Remove TLS group definitions that cause crazy values in the tensors or B-factors
+    if ($NTLS != 0) then
+      echo "-Filtering results" | tee -a $LOG
+      foreach TLSG (`ls -Sr ????.tls | cut -c 1-4`)
+        if (`grep -c -E '\*{6}' ${TLSG}_out.tls` != 0) then
+          echo " o Problem with TLS group definition $TLSG.tls" | tee -a $LOG
+          mv $WORKDIR/$TLSG.tls $WORKDIR/$TLSG.notls
+          @ NTLS = $NTLS - 1
+        endif
+        if (-e $WORKDIR/$TLSG.tls && `grep '^[AH][TE]' ${PDBID}_ttest${TLSG}.pdb | grep -c -E '\*{6}'` != 0) then
+          echo " o Problem with TLS group definition $TLSG.tls" | tee -a $LOG
+          mv $WORKDIR/$TLSG.tls $WORKDIR/$TLSG.notls
+          @ NTLS = $NTLS - 1
+        endif
+      end
+    endif  
+
+    #Create .ttest file for picker iff any TLS groups are approved
+    if ($NTLS != 0) then
+      #Grep out the refinement statistics, and take the first data line to obtain R(-free) targets. Use the first valid log file.
+      set VALID1 = `ls -Sr ????.tls | head -n 1 | cut -c 1-4`
+      set TTR  = `grep -a -A 2 'Ncyc    Rfact    Rfree     FOM' $WORKDIR/${PDBID}_ttest$VALID1.log | tail -n 1 | awk '{print $2}'`
+      set TTRF = `grep -a -A 2 'Ncyc    Rfact    Rfree     FOM' $WORKDIR/${PDBID}_ttest$VALID1.log | tail -n 1 | awk '{print $3}'`
+
+      echo "$TTR $TTRF" > $WORKDIR/${PDBID}.ttest   #Use R and R-free obtained after resetting the B-factor
+      foreach TLSG (`ls -Sr ????.tls | cut -c 1-4`)
+        if (-e $WORKDIR/${PDBID}_ttest$TLSG.pdb) then
+          if ($TLSG == $VALID1) then
+            set LINE = `tail -n $LOGSTEP $WORKDIR/${PDBID}_ttest$TLSG.log | head -n 1`
+            echo "$TLSG $LINE" >> $WORKDIR/${PDBID}.ttest
+          else
+            #Do a hamilton test first
+            cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.bselect.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
+            
+            if (`$TOOLS/bselect -t $WORKDIR/${PDBID}_ttest$VALID1.log $WORKDIR/${PDBID}_ttest$TLSG.log` != 'LOG1') then
+              set LINE = `tail -n $LOGSTEP $WORKDIR/${PDBID}_ttest$TLSG.log | head -n 1`
+              echo "$TLSG $LINE" >> $WORKDIR/${PDBID}.ttest
+            else
+              echo " o TLS group definition $TLSG.tls causes over-fitting" | tee -a $LOG
+            endif
+          endif
+        else
+          echo " o $WORKDIR/${PDBID}_ttest$TLSG.pdb was missing" | tee -a $LOG
+          set TTEST = 1
+        endif
+      end
+
+      #Pick the best TLS group configuration. PROGRAM: picker
+      set OPTTLSG = `$TOOLS/picker -z $WORKDIR/${PDBID}.ttest $CNTSTCNT $RFRRAT $SRFRRAT` #The geometry is ignored here
+      
+      #Also pick second best TLS group.
+      if (`ls -Sr ????.tls | wc -l` != 1) then
+        grep -v $OPTTLSG $WORKDIR/${PDBID}.ttest > $WORKDIR/${PDBID}.ttest2
+        set OPTTLSG2 = `$TOOLS/picker -z $WORKDIR/${PDBID}.ttest2 $CNTSTCNT $RFRRAT $SRFRRAT`
+      else
+        set OPTTLSG2 = 'none'
+      endif
+
+    
+      #Print values
+      if ($OPTTLSG == 'none') then
+        echo "-TLS does not seem to work for this structure" | tee -a $LOG
+        echo " o TLS refinement will not be used"  | tee -a $LOG
+        #Set up input for B-weight optimisation
+        cp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_refin.pdb
+        set DOTLS    = 0
+        set TLSCMD   =        #Empty TLS command
+        set TLSFILS  =        #No TLS files specified
+      else
+        echo "-TLS groups in $OPTTLSG.tls may be used in refinement" | tee -a $LOG
+        #Set up input for B-weight optimisation
+        cp $WORKDIR/${OPTTLSG}_out.tls         $WORKDIR/${PDBID}_refin.tls
+        set TLSFILS = `echo TLSIN $WORKDIR/${PDBID}_refin.tls`
+        set BCMD    =  #No need to reset the B-factors anymore
+        #Run TLSanl to get a proper input PDB file if an older Refmac was used
+        cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.tlsanl.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
+        
+        tlsanl \
+        XYZIN $WORKDIR/${PDBID}_ttest$OPTTLSG.pdb \
+        XYZOUT $WORKDIR/${PDBID}_refin.pdb \
+<<eof >& $WORKDIR/${PDBID}_tlsanl.log
+        BINPUT t
+        BRESID f
+        ISOOUT RESI
+        NUMERICAL
+        END
+eof
+        if($status) then
+          echo " o Problem with TLSanl for TLS groups in $OPTTLSG.tls" | tee -a $LOG
+          echo "COMMENT: TLSanl: general error for optimal TLS group" >> $DEBUG
+          echo "PDB-REDO,$PDBID"                                      >> $DEBUG
+          #Try using the second best TLS group configuration
+          if ($OPTTLSG2 != 'none') then
+
+            set OPTTLSG = $OPTTLSG2
+            echo " o TLS groups in $OPTTLSG.tls may be used in refinement instead" | tee -a $LOG
+
+            #Run TLSanl again to get a proper input PDB file
+            tlsanl \
+            XYZIN $WORKDIR/${PDBID}_ttest$OPTTLSG.pdb \
+            XYZOUT $WORKDIR/${PDBID}_refin.pdb \
+<<eof >$WORKDIR/${PDBID}_tlsanl2.log
+            BINPUT t
+            BRESID f
+            ISOOUT RESI
+            NUMERICAL
+            END
+eof
+            if($status) then #second failure
+              echo " o Problem with TLSanl for TLS groups in $OPTTLSG.tls" | tee -a $LOG
+              echo "COMMENT: TLSanl: general error for second best TLS group" >> $DEBUG
+              echo "PDB-REDO,$PDBID"                                          >> $DEBUG
+              cp $WORKDIR/${PDBID}_ttest$OPTTLSG.pdb $WORKDIR/${PDBID}_refin.pdb
+              #The output files will have the total B-factor instead of the residual. Circumvent by resetting the B-factors.
+              set BCMD = `echo $TBCMD`
+            endif
+
+            #Set up input for downstream refinement
+            cp $WORKDIR/${OPTTLSG}_out.tls         $WORKDIR/${PDBID}_refin.tls
+            set TLSFILS = `echo TLSIN $WORKDIR/${PDBID}_refin.tls`
+
+            
+          else
+            rm $WORKDIR/${PDBID}.ttest2
+            cp $WORKDIR/${PDBID}_ttest$OPTTLSG.pdb $WORKDIR/${PDBID}_refin.pdb
+            #The output files will have the total B-factor instead of the residual. Circumvent by resetting the B-factors.
+            set BCMD = `echo $TBCMD`
+          endif
+        endif
+        
+        #Test the refinement stability with and without TLS
+        echo "-Testing refinement performance" | tee -a $LOG
+        
+        #Run refmac with different TLS group configurations
+        foreach TMODE (TLSY TLSN)
+   
+          if ($TMODE == TLSY) then
+            set TLSLIN = "TLSIN $WORKDIR/$OPTTLSG.tls TLSOUT $WORKDIR/tmodeTLSY_out.tls"
+          else
+            #No TLS whatsoever
+            set TLSLIN = 
+            set TLSCMD =
+          endif
+          
+          #Return label for job launching
+tmoderunning:
+
+          #Only launch new jobs when the number of cores is not exceeded
+          #Strangely direct line counting on the jobs output doesn't work, so a temporary file is needed
+          jobs > $WORKDIR/jobs.log
+          if (`cat $WORKDIR/jobs.log | wc -l` < $NPROC) then
+
+            #Run refmac
+            refmacat \
+            XYZIN  $WORKDIR/${PDBID}_0cyc.pdb \
+            XYZOUT $WORKDIR/${PDBID}_tmode$TMODE.pdb \
+            HKLIN  $WORKDIR/$PDBID.mtz \
+            HKLOUT $WORKDIR/${PDBID}_tmode$TMODE.mtz \
+            $LIBLIN \
+            $TLSLIN \
+            $SCATLIN \
+<<eof >& $WORKDIR/${PDBID}_tmode$TMODE.log &
+              $SCATTERCMD
+              make check NONE
+              make hydrogen $HYDROGEN hout NO peptide NO cispeptide YES -
+                ssbridge $SSBOND $RSYMM $SUGAR $CONNECTIVITY link NO
+              make newligand continue
+              $TBCMD
+              refi type REST resi MLKF meth CGMAT bref ISOT
+              $REFIRES
+              $TLSCMD
+              tlsd waters exclude
+              ncyc 20
+              scal type $SOLVENT $SCALING
+              solvent YES
+              $MASKPAR
+              $LOWMEM
+              weight $WGTSIG AUTO 2.50
+              monitor MEDIUM -
+                torsion 10.0 distance 10.0 angle 10.0 plane 10.0 chiral 10.0 -
+                bfactor 10.0 bsphere  10.0 rbond 10.0 ncsr  10.0
+              $NCSTYPE
+              $NCSALIGN
+              $NCSNEIGH
+              $NCSSTRICT
+              $TWIN
+              blim 2.0 999.0
+              labin  FP=FP SIGFP=SIGFP FREE=FREE $PHASES $ANOMCOEF
+              $ANOMCMD
+              pdbout copy expdta
+              pdbout copy remarks 200 280 350
+              NOHARVEST
+              $HOMOLWGTCMD
+              $HOMOLCMD
+              $HBONDWGTCMD
+              $HBONDCMD
+              kill $TOOLS/pdb_redo.refmac
+              END
+eof
+          else
+            #Wait a bit to start again
+            sleep 10
+            goto tmoderunning
+          endif
+        end
+
+        #Wait for the jobs to finish
+        wait
+    
+        #Analyse the results benchmark against TLS refinement only
+        set TMR  = `tail -n $LOGSTEP $WORKDIR/${PDBID}_ttest$OPTTLSG.log | head -n 1 | awk '{print $2}'`
+        set TMRF = `tail -n $LOGSTEP $WORKDIR/${PDBID}_ttest$OPTTLSG.log | head -n 1 | awk '{print $3}'`
+        echo "$TMR $TMRF" > $WORKDIR/${PDBID}.tmode
+        foreach TMODE (TLSY TLSN)
+          set TFREE = `tail -n $LOGSTEP $WORKDIR/${PDBID}_tmode$TMODE.log | head -n 1 | awk '{print $3}'`
+          if ($TMODE == TLSY) then
+            echo " o Tested refinement with TLS    (R-free = $TFREE)" | tee -a $LOG
+          else
+            echo " o Tested refinement without TLS (R-free = $TFREE)" | tee -a $LOG
+          endif  
+          set LINE = `tail -n $LOGSTEP $WORKDIR/${PDBID}_tmode$TMODE.log | head -n 1`
+          echo "$TMODE $LINE" >> $WORKDIR/${PDBID}.tmode
+        end
+        set BTMODE = `$TOOLS/picker -f $WORKDIR/${PDBID}.tmode $CNTSTCNT $RFRRAT $SRFRRAT $RMSZB $RMSZA`
+    
+        # make the call
+        if ($BTMODE == TLSY) then
+          echo "-Model refinement with TLS works best" | tee -a $LOG 
+        else
+          echo "-Model refinement without TLS works best" | tee -a $LOG
+          set DOTLS   = 0  #Do not use TLS
+          set TLSCMD  =    #Empty TLS command
+          set TLSFILS =    #No TLS files specified
+          cp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_refin.pdb
+        endif
+    
+      endif
+    else
+      #All TLS definitions failed
+      echo "-No usable TLS group definitions"   | tee -a $LOG
+      echo " o TLS refinement will not be used" | tee -a $LOG
+      set DOTLS   = 0  #Do not use TLS
+      set TLSCMD  =    #Empty TLS command
+      set TLSFILS =    #No TLS files specified
+      cp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_refin.pdb
+    endif
+  else
+    #No TLS groups could be made
+    echo "-Cannot create any TLS group definitions" | tee -a $LOG
+    echo " o TLS refinement will not be used"       | tee -a $LOG
+    echo "COMMENT: Could not create any TLS groups" >> $DEBUG
+    echo "PDB-REDO,$PDBID"                          >> $DEBUG
+    set DOTLS   = 0  #Do not use TLS
+    set TLSCMD  =    #Empty TLS command
+    set TLSFILS =    #No TLS files specified
+    cp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_refin.pdb
+  endif
+
+else
+  #Not using TLS ensure that the input file for the B-weight optimisation exists
+  cp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_refin.pdb
 endif
 
 
@@ -5247,8 +5624,16 @@ anisooriso:
     #Strangely direct line counting on the jobs output doesn't work, so a temporary file is needed
     jobs > $WORKDIR/jobs.log
     if (`cat $WORKDIR/jobs.log | wc -l` < $NPROC) then
-
-      echo "-Testing ${TYPETEST}ropic B-factors" | tee -a $LOG
+    
+      if ($TYPETEST == "ANISOT") then
+        echo "-Testing anisotropic B-factors" | tee -a $LOG
+        set ANISOORISOTLSFILS = 
+      else if ($DOTLS == 1) then 
+        echo "-Testing isotropic B-factors + TLS" | tee -a $LOG
+        set ANISOORISOTLSFILS = `echo $TLSFILS`
+      else
+        echo "-Testing isotropic B-factors" | tee -a $LOG
+      endif
 
       refmacat \
       XYZIN  $WORKDIR/${PDBID}_0cyc.pdb \
@@ -5257,6 +5642,7 @@ anisooriso:
       HKLOUT $WORKDIR/${PDBID}_${TYPETEST}ropic.mtz \
       $LIBLIN \
       $SCATLIN \
+      $ANISOORISOTLSFILS \
 <<eof >$WORKDIR/${PDBID}_${TYPETEST}ropic.log &
         $SCATTERCMD
         make check NONE
@@ -5608,368 +5994,6 @@ if ($BREFTYPE == "ANISOT" || $URESO != $RESOLUTION) then
   echo "R-free Z-score    : $RFCALZ"     | tee -a $LOG 
 endif
 
-################################################ TLS group optimisation ##################################################
-
-#Only do this if TLS refinement isn't surpressed
-if ($DOTLS == 1) then
-  echo " " | tee -a $LOG
-  echo " " | tee -a $LOG
-  echo "****** TLS group optimisation ******" | tee -a $LOG
-
-  #Optimise TLS groups iff any definitions exist.
-  set NTLS = `find $WORKDIR -name "????.tls" | wc -l`
-  if ($NTLS != 0) then
-    echo "-Testing $NTLS TLS group definition(s)" | tee -a $LOG
-
-    #Maximise the used CPU time
-    limit cputime 24h
-
-    #Run refmac with different TLS group configurations
-    foreach TLSG (`ls -Sr ????.tls | cut -c 1-4`)
-
-      #Return label for job launching
-ttestrunning:
-
-      #Only launch new jobs when the number of cores is not exceeded
-      #Strangely direct line counting on the jobs output doesn't work, so a temporary file is needed
-      jobs > $WORKDIR/jobs.log
-      if (`cat $WORKDIR/jobs.log | wc -l` < $NPROC) then
-
-        #Run refmac
-        refmacat \
-        XYZIN  $WORKDIR/${PDBID}_0cyc.pdb \
-        XYZOUT $WORKDIR/${PDBID}_ttest$TLSG.pdb \
-        HKLIN  $WORKDIR/$PDBID.mtz \
-        HKLOUT $WORKDIR/${PDBID}_ttest$TLSG.mtz \
-        $LIBLIN \
-        TLSIN $WORKDIR/$TLSG.tls TLSOUT $WORKDIR/${TLSG}_out.tls \
-        $SCATLIN \
-<<eof >& $WORKDIR/${PDBID}_ttest$TLSG.log &
-          $SCATTERCMD
-          make check NONE
-          make hydrogen $HYDROGEN hout NO peptide NO cispeptide YES -
-           ssbridge $SSBOND $RSYMM $SUGAR $CONNECTIVITY link NO
-          make newligand continue
-          $TBCMD
-          refi type REST resi MLKF meth CGMAT bref ISOT
-          $REFIRES
-          $TLSCMD
-          tlsd waters exclude
-          ncyc 0
-          scal type $SOLVENT $SCALING
-          solvent YES
-          $MASKPAR
-          $LOWMEM
-          weight AUTO
-          monitor MEDIUM -
-            torsion 10.0 distance 10.0 angle 10.0 plane 10.0 chiral 10.0 -
-            bfactor 10.0 bsphere  10.0 rbond 10.0 ncsr  10.0
-          $NCSTYPE
-          $NCSALIGN
-          $NCSNEIGH
-          $NCSSTRICT
-          $TWIN
-          blim 2.0 999.0
-          labin  FP=FP SIGFP=SIGFP FREE=FREE $PHASES $ANOMCOEF
-          $ANOMCMD
-          pdbout copy expdta
-          pdbout copy remarks 200 280 350
-          NOHARVEST
-          $HOMOLWGTCMD
-          $HOMOLCMD
-          $HBONDWGTCMD
-          $HBONDCMD
-          kill $TOOLS/pdb_redo.refmac
-          END
-eof
-      else
-        #Wait a bit to start again
-        sleep 10
-        goto ttestrunning
-      endif
-    end
-
-    #Wait for the jobs to finish
-    wait
-
-    #Unset the CPU time limit
-    limit cputime unlimited
-
-    #Check for errors and report results
-    foreach TLSG (`ls -Sr ????.tls | cut -c 1-4`)
-      if (! -e $WORKDIR/${TLSG}_out.tls) then
-        echo " o Problem with Refmac using $TLSG.tls" | tee -a $LOG
-        mv $WORKDIR/$TLSG.tls $WORKDIR/$TLSG.notls
-        @ NTLS = $NTLS - 1 
-      else
-        #Mine out the R-free and report
-        set TFREE = `tail -n $LOGSTEP $WORKDIR/${PDBID}_ttest$TLSG.log | head -n 1 | awk '{print $3}'`
-        echo " o Tested tls groups from $TLSG.tls (R-free = $TFREE)" | tee -a $LOG
-      endif
-    end
-
-    #Remove TLS group definitions that cause crazy values in the tensors or B-factors
-    if ($NTLS != 0) then
-      echo "-Filtering results" | tee -a $LOG
-      foreach TLSG (`ls -Sr ????.tls | cut -c 1-4`)
-        if (`grep -c -E '\*{6}' ${TLSG}_out.tls` != 0) then
-          echo " o Problem with TLS group definition $TLSG.tls" | tee -a $LOG
-          mv $WORKDIR/$TLSG.tls $WORKDIR/$TLSG.notls
-          @ NTLS = $NTLS - 1
-        endif
-        if (-e $WORKDIR/$TLSG.tls && `grep '^[AH][TE]' ${PDBID}_ttest${TLSG}.pdb | grep -c -E '\*{6}'` != 0) then
-          echo " o Problem with TLS group definition $TLSG.tls" | tee -a $LOG
-          mv $WORKDIR/$TLSG.tls $WORKDIR/$TLSG.notls
-          @ NTLS = $NTLS - 1
-        endif
-      end
-    endif  
-
-    #Create .ttest file for picker iff any TLS groups are approved
-    if ($NTLS != 0) then
-      #Grep out the refinement statistics, and take the first data line to obtain R(-free) targets. Use the first valid log file.
-      set VALID1 = `ls -Sr ????.tls | head -n 1 | cut -c 1-4`
-      set TTR  = `grep -a -A 2 'Ncyc    Rfact    Rfree     FOM' $WORKDIR/${PDBID}_ttest$VALID1.log | tail -n 1 | awk '{print $2}'`
-      set TTRF = `grep -a -A 2 'Ncyc    Rfact    Rfree     FOM' $WORKDIR/${PDBID}_ttest$VALID1.log | tail -n 1 | awk '{print $3}'`
-
-      echo "$TTR $TTRF" > $WORKDIR/${PDBID}.ttest   #Use R and R-free obtained after resetting the B-factor
-      foreach TLSG (`ls -Sr ????.tls | cut -c 1-4`)
-        if (-e $WORKDIR/${PDBID}_ttest$TLSG.pdb) then
-          if ($TLSG == $VALID1) then
-            set LINE = `tail -n $LOGSTEP $WORKDIR/${PDBID}_ttest$TLSG.log | head -n 1`
-            echo "$TLSG $LINE" >> $WORKDIR/${PDBID}.ttest
-          else
-            #Do a hamilton test first
-            cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.bselect.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-            
-            if (`$TOOLS/bselect -t $WORKDIR/${PDBID}_ttest$VALID1.log $WORKDIR/${PDBID}_ttest$TLSG.log` != 'LOG1') then
-              set LINE = `tail -n $LOGSTEP $WORKDIR/${PDBID}_ttest$TLSG.log | head -n 1`
-              echo "$TLSG $LINE" >> $WORKDIR/${PDBID}.ttest
-            else
-              echo " o TLS group definition $TLSG.tls causes over-fitting" | tee -a $LOG
-            endif
-          endif
-        else
-          echo " o $WORKDIR/${PDBID}_ttest$TLSG.pdb was missing" | tee -a $LOG
-          set TTEST = 1
-        endif
-      end
-
-      #Pick the best TLS group configuration. PROGRAM: picker
-      set OPTTLSG = `$TOOLS/picker -z $WORKDIR/${PDBID}.ttest $CNTSTCNT $RFRRAT $SRFRRAT` #The geometry is ignored here
-      
-      #Also pick second best TLS group.
-      if (`ls -Sr ????.tls | wc -l` != 1) then
-        grep -v $OPTTLSG $WORKDIR/${PDBID}.ttest > $WORKDIR/${PDBID}.ttest2
-        set OPTTLSG2 = `$TOOLS/picker -z $WORKDIR/${PDBID}.ttest2 $CNTSTCNT $RFRRAT $SRFRRAT`
-      else
-        set OPTTLSG2 = 'none'
-      endif
-
-    
-      #Print values
-      if ($OPTTLSG == 'none') then
-        echo "-TLS does not seem to work for this structure" | tee -a $LOG
-        echo " o TLS refinement will not be used"  | tee -a $LOG
-        #Set up input for B-weight optimisation
-        cp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_refin.pdb
-        set DOTLS    = 0
-        set TLSCMD   =        #Empty TLS command
-        set TLSFILS  =        #No TLS files specified
-      else
-        echo "-TLS groups in $OPTTLSG.tls may be used in refinement" | tee -a $LOG
-        #Set up input for B-weight optimisation
-        cp $WORKDIR/${OPTTLSG}_out.tls         $WORKDIR/${PDBID}_refin.tls
-        set TLSFILS = `echo TLSIN $WORKDIR/${PDBID}_refin.tls`
-        set BCMD    =  #No need to reset the B-factors anymore
-        #Run TLSanl to get a proper input PDB file if an older Refmac was used
-        cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.tlsanl.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-        
-        tlsanl \
-        XYZIN $WORKDIR/${PDBID}_ttest$OPTTLSG.pdb \
-        XYZOUT $WORKDIR/${PDBID}_refin.pdb \
-<<eof >& $WORKDIR/${PDBID}_tlsanl.log
-        BINPUT t
-        BRESID f
-        ISOOUT RESI
-        NUMERICAL
-        END
-eof
-        if($status) then
-          echo " o Problem with TLSanl for TLS groups in $OPTTLSG.tls" | tee -a $LOG
-          echo "COMMENT: TLSanl: general error for optimal TLS group" >> $DEBUG
-          echo "PDB-REDO,$PDBID"                                      >> $DEBUG
-          #Try using the second best TLS group configuration
-          if ($OPTTLSG2 != 'none') then
-
-            set OPTTLSG = $OPTTLSG2
-            echo " o TLS groups in $OPTTLSG.tls may be used in refinement instead" | tee -a $LOG
-
-            #Run TLSanl again to get a proper input PDB file
-            tlsanl \
-            XYZIN $WORKDIR/${PDBID}_ttest$OPTTLSG.pdb \
-            XYZOUT $WORKDIR/${PDBID}_refin.pdb \
-<<eof >$WORKDIR/${PDBID}_tlsanl2.log
-            BINPUT t
-            BRESID f
-            ISOOUT RESI
-            NUMERICAL
-            END
-eof
-            if($status) then #second failure
-              echo " o Problem with TLSanl for TLS groups in $OPTTLSG.tls" | tee -a $LOG
-              echo "COMMENT: TLSanl: general error for second best TLS group" >> $DEBUG
-              echo "PDB-REDO,$PDBID"                                          >> $DEBUG
-              cp $WORKDIR/${PDBID}_ttest$OPTTLSG.pdb $WORKDIR/${PDBID}_refin.pdb
-              #The output files will have the total B-factor instead of the residual. Circumvent by resetting the B-factors.
-              set BCMD = `echo $TBCMD`
-            endif
-
-            #Set up input for B-weight optimisation (again)
-            cp $WORKDIR/${OPTTLSG}_out.tls         $WORKDIR/${PDBID}_refin.tls
-            set TLSFILS = `echo TLSIN $WORKDIR/${PDBID}_refin.tls`
-
-            
-          else
-            rm $WORKDIR/${PDBID}.ttest2
-            cp $WORKDIR/${PDBID}_ttest$OPTTLSG.pdb $WORKDIR/${PDBID}_refin.pdb
-            #The output files will have the total B-factor instead of the residual. Circumvent by resetting the B-factors.
-            set BCMD = `echo $TBCMD`
-          endif
-        endif
-        
-        #Test the refinement stability with and without TLS
-        echo "-Testing refinement performance" | tee -a $LOG
-        
-        #Run refmac with different TLS group configurations
-        foreach TMODE (TLSY TLSN)
-   
-          if ($TMODE == TLSY) then
-            set TLSLIN = "TLSIN $WORKDIR/$OPTTLSG.tls TLSOUT $WORKDIR/tmodeTLSY_out.tls"
-          else
-            #No TLS whatsoever
-            set TLSLIN = 
-            set TLSCMD =
-          endif
-          
-          #Return label for job launching
-tmoderunning:
-
-          #Only launch new jobs when the number of cores is not exceeded
-          #Strangely direct line counting on the jobs output doesn't work, so a temporary file is needed
-          jobs > $WORKDIR/jobs.log
-          if (`cat $WORKDIR/jobs.log | wc -l` < $NPROC) then
-
-            #Run refmac
-            refmacat \
-            XYZIN  $WORKDIR/${PDBID}_0cyc.pdb \
-            XYZOUT $WORKDIR/${PDBID}_tmode$TMODE.pdb \
-            HKLIN  $WORKDIR/$PDBID.mtz \
-            HKLOUT $WORKDIR/${PDBID}_tmode$TMODE.mtz \
-            $LIBLIN \
-            $TLSLIN \
-            $SCATLIN \
-<<eof >& $WORKDIR/${PDBID}_tmode$TMODE.log &
-              $SCATTERCMD
-              make check NONE
-              make hydrogen $HYDROGEN hout NO peptide NO cispeptide YES -
-                ssbridge $SSBOND $RSYMM $SUGAR $CONNECTIVITY link NO
-              make newligand continue
-              $TBCMD
-              refi type REST resi MLKF meth CGMAT bref ISOT
-              $REFIRES
-              $TLSCMD
-              tlsd waters exclude
-              ncyc 20
-              scal type $SOLVENT $SCALING
-              solvent YES
-              $MASKPAR
-              $LOWMEM
-              weight $WGTSIG AUTO 2.50
-              monitor MEDIUM -
-                torsion 10.0 distance 10.0 angle 10.0 plane 10.0 chiral 10.0 -
-                bfactor 10.0 bsphere  10.0 rbond 10.0 ncsr  10.0
-              $NCSTYPE
-              $NCSALIGN
-              $NCSNEIGH
-              $NCSSTRICT
-              $TWIN
-              blim 2.0 999.0
-              labin  FP=FP SIGFP=SIGFP FREE=FREE $PHASES $ANOMCOEF
-              $ANOMCMD
-              pdbout copy expdta
-              pdbout copy remarks 200 280 350
-              NOHARVEST
-              $HOMOLWGTCMD
-              $HOMOLCMD
-              $HBONDWGTCMD
-              $HBONDCMD
-              kill $TOOLS/pdb_redo.refmac
-              END
-eof
-          else
-            #Wait a bit to start again
-            sleep 10
-            goto tmoderunning
-          endif
-        end
-
-        #Wait for the jobs to finish
-        wait
-    
-        #Analyse the results benchmark against TLS refinement only
-        set TMR  = `tail -n $LOGSTEP $WORKDIR/${PDBID}_ttest$OPTTLSG.log | head -n 1 | awk '{print $2}'`
-        set TMRF = `tail -n $LOGSTEP $WORKDIR/${PDBID}_ttest$OPTTLSG.log | head -n 1 | awk '{print $3}'`
-        echo "$TMR $TMRF" > $WORKDIR/${PDBID}.tmode
-        foreach TMODE (TLSY TLSN)
-          set TFREE = `tail -n $LOGSTEP $WORKDIR/${PDBID}_tmode$TMODE.log | head -n 1 | awk '{print $3}'`
-          if ($TMODE == TLSY) then
-            echo " o Tested refinement with TLS    (R-free = $TFREE)" | tee -a $LOG
-          else
-            echo " o Tested refinement without TLS (R-free = $TFREE)" | tee -a $LOG
-          endif  
-          set LINE = `tail -n $LOGSTEP $WORKDIR/${PDBID}_tmode$TMODE.log | head -n 1`
-          echo "$TMODE $LINE" >> $WORKDIR/${PDBID}.tmode
-        end
-        set BTMODE = `$TOOLS/picker -f $WORKDIR/${PDBID}.tmode $CNTSTCNT $RFRRAT $SRFRRAT $RMSZB $RMSZA`
-    
-        # make the call
-        if ($BTMODE == TLSY) then
-          echo "-Model refinement with TLS works best" | tee -a $LOG 
-        else
-          echo "-Model refinement without TLS works best" | tee -a $LOG
-          set DOTLS   = 0  #Do not use TLS
-          set TLSCMD  =    #Empty TLS command
-          set TLSFILS =    #No TLS files specified
-          cp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_refin.pdb
-        endif
-    
-      endif
-    else
-      #All TLS definitions failed
-      echo "-No usable TLS group definitions"   | tee -a $LOG
-      echo " o TLS refinement will not be used" | tee -a $LOG
-      set DOTLS   = 0  #Do not use TLS
-      set TLSCMD  =    #Empty TLS command
-      set TLSFILS =    #No TLS files specified
-      cp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_refin.pdb
-    endif
-  else
-    #No TLS groups could be made
-    echo "-Cannot create any TLS group definitions" | tee -a $LOG
-    echo " o TLS refinement will not be used"       | tee -a $LOG
-    echo "COMMENT: Could not create any TLS groups" >> $DEBUG
-    echo "PDB-REDO,$PDBID"                          >> $DEBUG
-    set DOTLS   = 0  #Do not use TLS
-    set TLSCMD  =    #Empty TLS command
-    set TLSFILS =    #No TLS files specified
-    cp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_refin.pdb
-  endif
-
-else
-  #Not using TLS ensure that the input file for the B-weight optimisation exists
-  cp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_refin.pdb
-endif
 
 ##################################### Individual B-factors or one overall B-factor? ######################################
 
@@ -8609,6 +8633,8 @@ else
       if (`cat $WORKDIR/${PDBID}_built_platonyzed.restraints | wc -l` > 0) then
         mv $WORKDIR/${PDBID}_built_platonyzed.restraints $WORKDIR/metal.rest
         set METALCMD = "@$WORKDIR/metal.rest"
+      else   
+        set METALCMD = ""
       endif
     else  
       set METALCMD = ""
@@ -9629,7 +9655,7 @@ endif
 #!!!! Change to using cache.cif  
 echo "-Analysing model changes" | tee -a $LOG
 $TOOLS/modelcompare -v \
--pdb1 $WORKDIR/${PDBID}_prepped.pdb \
+-pdb1 $WORKDIR/${PDBID}_0cyc.pdb \
 -pdb2 $WORKDIR/${PDBID}_final.pdb \
 -output-name $PDBID \
 $NUMBERING \
@@ -9806,7 +9832,7 @@ echo " " | tee -a $LOG
 echo "****** Ligand validation ******" | tee -a $LOG
 
 #Make sure there are existing ligands
-if (`echo $LIG_LIST | grep -c ':'` != 0) then
+if (`grep -c "_ligand.asym_id" $WORKDIR/$PDBID.extracted` > 0) then
 
   echo "-Analysing existing ligands" | tee -a $LOG
 
@@ -9815,15 +9841,15 @@ if (`echo $LIG_LIST | grep -c ':'` != 0) then
     #Loop over ligands
     cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.YASARA.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
     
-    foreach LIG (`echo $LIG_LIST | sed 's/:/ /g'`)
+    foreach LIG (`echo "SELECT pdb_strand_id,pdb_seq_num,pdb_ins_code FROM ligand; " | $TOOLS/mmCQL $WORKDIR/$PDBID.extracted | tail -n +2 | tr "\t" "_"`)
 
       #Specify the residue
-      set RESNUM = `echo $LIG | cut -c 2-`
-      set CHID   = `echo $LIG | cut -c 1`
-      set PDBLIG = `echo "$CHID $RESNUM" | awk '{printf "%s%4d\n", $1, $2}' | sed 's/ /_/g'`
+      set RESNUM = `echo $LIG | cut -d '_' -f 2`
+      set CHID   = `echo $LIG | cut -d '_' -f 1`
+#      set PDBLIG = `echo "$CHID $RESNUM" | awk '{printf "%s%4d\n", $1, $2}' | sed 's/ /_/g'`
       
       #Only run for existing ligands
-      if (`grep '^[AH][TE][OT]' $WORKDIR/${PDBID}_final.pdb | cut -c 18-27 | sed 's/ /_/g' | grep -c $PDBLIG` > 0) then
+      if (`echo "SELECT auth_comp_id FROM atom_site WHERE auth_asym_id = '$CHID' AND auth_seq_id = '$RESNUM';" | $TOOLS/mmCQL $WORKDIR/${PDBID}_prepped.cif | wc -l` > 1) then
 
         #Return label for job launching
 ligvalrunning:
@@ -9834,7 +9860,7 @@ ligvalrunning:
 
         if (`cat $WORKDIR/jobs.log | wc -l` < $NPROC) then
 
-          echo " o Validating residue $LIG" | tee -a $LOG
+          echo " o Validating residue $CHID $RESNUM" | tee -a $LOG
 
           $YASARA -txt $TOOLS/ligval.mcr \
           "oripdb='$WORKDIR/${PDBID}_0cyc.pdb'" \
@@ -9852,6 +9878,9 @@ ligvalrunning:
     #Wait for the jobs to finish
     wait
   endif
+else
+  #Report that there are no ligands
+  echo "-No existing ligands found in the model" | tee -a $LOG
 endif
 
 #Validate new ligands
@@ -9880,7 +9909,7 @@ ligvalrunning:
 
       if (`cat $WORKDIR/jobs.log | wc -l` < $NPROC) then
 
-        echo " o Validating residue $LIG" | tee -a $LOG
+        echo " o Validating residue $CHID $RESNUM" | tee -a $LOG
 
         $YASARA -txt $TOOLS/ligval_solo.mcr \
         "newpdb='$WORKDIR/${PDBID}_final.pdb'" \
@@ -9898,8 +9927,15 @@ ligvalrunning:
   endif
 endif
 
+#Remove empty files
+# foreach LIGLOG ( `find $WORKDIR -name "ligval_*.log"` )
+#   if (`grep -c Residue $LIGLOG` == 0) then
+#     rm $LIGLOG
+#   endif
+# end
+
 #Accumulate the results if there are any ligands
-if (`echo $LIG_LIST | grep -c ':'` != 0 || `echo $NLIG_LIST | grep -c ':'` != 0) then
+if (`$TOOLS/cif-grep -c -i _ligand.asym_id . $WORKDIR/$PDBID.extracted` > 0 || `echo $NLIG_LIST | grep -c ':'` != 0) then
   echo "-Compiling validation results" | tee -a $LOG
   python3 $TOOLS/ligval_json.py $WORKDIR > $WORKDIR/ligvaljson.log
 endif
@@ -9907,107 +9943,102 @@ endif
 #Report the validation results
 
 #Loop over existing ligands
-foreach LIG (`echo $LIG_LIST | sed 's/:/ /g'`)
+if (`find $WORKDIR -name "ligval_*.log" | wc -l` > 0) then
+  foreach LIG (`echo "SELECT pdb_strand_id,pdb_seq_num,pdb_ins_code FROM ligand; " | $TOOLS/mmCQL $WORKDIR/$PDBID.extracted | tail -n +2 | tr "\t" "_"`)
 
-  #Specify the residue
-  set TRESNUM = `echo $LIG | cut -c 2-`
-  if (`echo $TRESNUM | grep -c "[[:alpha:]]"` != 0) then
-    set RESNUM = `echo -n $TRESNUM | head -c -1`
-    set INS    = `echo -n $TRESNUM | tail -c 1`
-  else  
-    set RESNUM = $TRESNUM
-    set INS    = ""
-  endif
-  set CHID   = `echo $LIG | cut -c 1`
-  set PDBLIG = `echo "$CHID $RESNUM" | awk '{printf "%s%4d\n", $1, $2}' | sed 's/ /_/g'`
+    #Specify the residue
+    set RESNUM = `echo $LIG | cut -d '_' -f 2`
+    set CHID   = `echo $LIG | cut -d '_' -f 1`
+    set INS    = `echo $LIG | cut -d '_' -f 3`
+    set PDBLIG = `echo "$CHID $RESNUM" | awk '{printf "%s%4d\n", $1, $2}' | sed 's/ /_/g'`
     
-  #Only run for existing ligands
-  if (`grep '^[AH][TE][OT][MA]' $WORKDIR/${PDBID}_final.pdb | cut -c 18-27 | sed 's/ /_/g' | grep -c $PDBLIG$INS` > 0) then
-    set RESID  = `grep '^[AH][TE][OT][MA]' $WORKDIR/${PDBID}_final.pdb | cut -c 18-27 | sed 's/ /_/g' | grep $PDBLIG$INS | head -n 1 | cut -c 1-3 | sed 's/_/ /g'`
+    #Only run for existing ligands
+    if (`grep '^[AH][TE][OT][MA]' $WORKDIR/${PDBID}_final.pdb | cut -c 18-27 | sed 's/ /_/g' | grep -c $PDBLIG$INS` > 0) then
+      set RESID  = `grep '^[AH][TE][OT][MA]' $WORKDIR/${PDBID}_final.pdb | cut -c 18-27 | sed 's/ /_/g' | grep $PDBLIG$INS | head -n 1 | cut -c 1-3 | sed 's/_/ /g'`
 
-    #Get real-space values
-    set LIGRSRO  = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.density_fit.real_space_Rfactor" | awk '{printf "%5.3f", $1}'`
-    set LIGRSRF  = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.density_fit.real_space_Rfactor" | awk '{printf "%5.3f", $1}'` 
-    set LIGCCO   = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.density_fit.real_space_correlation" | awk '{printf "%5.3f", $1}'`
-    set LIGCCF   = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.density_fit.real_space_correlation" | awk '{printf "%5.3f", $1}'` 
-    set LIGEDIAO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.density_fit.EDIAm_density_fit" | awk '{printf "%5.3f", $1}'`
-    set LIGEDIAF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.density_fit.EDIAm_density_fit" | awk '{printf "%5.3f", $1}'` 
-    set LIGOPIAO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.density_fit.OPIA_density_coverage" | awk '{printf "%5.1f", $1}'`
-    set LIGOPIAF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.density_fit.OPIA_density_coverage" | awk '{printf "%5.1f", $1}'`     
+      #Get real-space values
+      set LIGRSRO  = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.density_fit.real_space_Rfactor" | awk '{printf "%5.3f", $1}'`
+      set LIGRSRF  = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.density_fit.real_space_Rfactor" | awk '{printf "%5.3f", $1}'` 
+      set LIGCCO   = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.density_fit.real_space_correlation" | awk '{printf "%5.3f", $1}'`
+      set LIGCCF   = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.density_fit.real_space_correlation" | awk '{printf "%5.3f", $1}'` 
+      set LIGEDIAO = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.density_fit.EDIAm_density_fit" | awk '{printf "%5.3f", $1}'`
+      set LIGEDIAF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.density_fit.EDIAm_density_fit" | awk '{printf "%5.3f", $1}'` 
+      set LIGOPIAO = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.density_fit.OPIA_density_coverage" | awk '{printf "%5.1f", $1}'`
+      set LIGOPIAF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.density_fit.OPIA_density_coverage" | awk '{printf "%5.1f", $1}'`     
     
-    #Extract YASARA results
-    #Shifts
-    set NSHIFT = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | ."\""atoms_shifted_more_than_0.5A"\""" | awk '{printf "%.0f", $1}'`
-    set RMSD   = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .all_atom_rmsd_in_A" | awk '{printf "%5.3f", $1}'`
+      #Extract YASARA results
+      #Shifts
+      set NSHIFT = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | ."\""atoms_shifted_more_than_0.5A"\""" | awk '{printf "%.0f", $1}'`
+      set RMSD   = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .all_atom_rmsd_in_A" | awk '{printf "%5.3f", $1}'`
     
-    #Heat of formation
-    set EFORMO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.heat_of_formation.energy" | sed 's/null/NA/'`
-    set EFORMF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.heat_of_formation.energy" | sed 's/null/NA/'`  
-    #Make pretty
-    if ($EFORMO != NA) then
-      set EFORMO = `echo $EFORMO | awk '{printf "%5.1f", $1}'`
-    endif  
-    if ($EFORMF != NA) then
-      set EFORMF = `echo $EFORMF | awk '{printf "%5.1f", $1}'`
-    endif    
+      #Heat of formation
+      set EFORMO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.heat_of_formation.energy" | sed 's/null/NA/'`
+      set EFORMF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.heat_of_formation.energy" | sed 's/null/NA/'`  
+      #Make pretty
+      if ($EFORMO != NA) then
+        set EFORMO = `echo $EFORMO | awk '{printf "%5.1f", $1}'`
+      endif  
+      if ($EFORMF != NA) then
+        set EFORMF = `echo $EFORMF | awk '{printf "%5.1f", $1}'`
+      endif    
 
-    #Hydrogen bonds
-    set EHBOO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.H_bonds_strength" | awk '{printf "%5.1f", $1}'`
-    set EHBOF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.H_bonds_strength" | awk '{printf "%5.1f", $1}'`  
-    set NHBOO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.H_bonds_count" | awk '{printf "%.0f", $1}'`
-    set NHBOF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.H_bonds_count" | awk '{printf "%.0f", $1}'`  
+      #Hydrogen bonds
+      set EHBOO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.H_bonds_strength" | awk '{printf "%5.1f", $1}'`
+      set EHBOF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.H_bonds_strength" | awk '{printf "%5.1f", $1}'`  
+      set NHBOO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.H_bonds_count" | awk '{printf "%.0f", $1}'`
+      set NHBOF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.H_bonds_count" | awk '{printf "%.0f", $1}'`  
 
-    #Bumps
-    set NBUMPO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.bumps_count" | awk '{printf "%.0f", $1}'`
-    set NBUMPF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.bumps_count" | awk '{printf "%.0f", $1}'`  
+      #Bumps
+      set NBUMPO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.bumps_count" | awk '{printf "%.0f", $1}'`
+      set NBUMPF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.bumps_count" | awk '{printf "%.0f", $1}'`  
 
-    #Hydrophobic contacts and strength
-    set SHYPHO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.hydrophobic_strength" | awk '{printf "%5.3f", $1}'`
-    set SHYPHF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.hydrophobic_strength" | awk '{printf "%5.3f", $1}'`  
-    set NHYPHO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.hydrophobic_count" | awk '{printf "%.0f", $1}'`
-    set NHYPHF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.hydrophobic_count" | awk '{printf "%.0f", $1}'`  
+      #Hydrophobic contacts and strength
+      set SHYPHO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.hydrophobic_strength" | awk '{printf "%5.3f", $1}'`
+      set SHYPHF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.hydrophobic_strength" | awk '{printf "%5.3f", $1}'`  
+      set NHYPHO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.hydrophobic_count" | awk '{printf "%.0f", $1}'`
+      set NHYPHF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.hydrophobic_count" | awk '{printf "%.0f", $1}'`  
 
-    #pi-pi contacts and strength
-    set SPIPIO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.pi_pi_strength" | awk '{printf "%5.3f", $1}'`
-    set SPIPIF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.pi_pi_strength" | awk '{printf "%5.3f", $1}'`  
-    set NPIPIO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.pi_pi_count" | awk '{printf "%.0f", $1}'`
-    set NPIPIF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.pi_pi_count" | awk '{printf "%.0f", $1}'`  
+      #pi-pi contacts and strength
+      set SPIPIO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.pi_pi_strength" | awk '{printf "%5.3f", $1}'`
+      set SPIPIF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.pi_pi_strength" | awk '{printf "%5.3f", $1}'`  
+      set NPIPIO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.pi_pi_count" | awk '{printf "%.0f", $1}'`
+      set NPIPIF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.pi_pi_count" | awk '{printf "%.0f", $1}'`  
 
-    #Cation-pi contacts and strength
-    set SCATPO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.cation_pi_strength" | awk '{printf "%5.3f", $1}'`
-    set SCATPF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.cation_pi_strength" | awk '{printf "%5.3f", $1}'`  
-    set NCATPO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.cation_pi_count" | awk '{printf "%.0f", $1}'`
-    set NCATPF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.cation_pi_count" | awk '{printf "%.0f", $1}'` 
+      #Cation-pi contacts and strength
+      set SCATPO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.cation_pi_strength" | awk '{printf "%5.3f", $1}'`
+      set SCATPF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.cation_pi_strength" | awk '{printf "%5.3f", $1}'`  
+      set NCATPO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.cation_pi_count" | awk '{printf "%.0f", $1}'`
+      set NCATPF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.cation_pi_count" | awk '{printf "%.0f", $1}'` 
   
-    #Give summary
-    echo " "                                                              | tee -a $LOG 
-    echo "****** Ligand validation details ($RESID $CHID $RESNUM$INS) ******" | tee -a $LOG
-    echo " "                                                              | tee -a $LOG 
-    echo "                                    Before  Final"          | tee -a $LOG 
-    echo "Real-space R-factor               : $LIGRSRO   $LIGRSRF"    | tee -a $LOG 
-    echo "Real-space correlation            : $LIGCCO   $LIGCCF"      | tee -a $LOG
-    echo "EDIAm density fit                 : $LIGEDIAO   $LIGEDIAF"  | tee -a $LOG
-    echo "OPIA density coverage (%)         : $LIGOPIAO    $LIGOPIAF" | tee -a $LOG   
-    echo " "                                                          | tee -a $LOG 
-    if ($?YASARA) then
-      echo "Energy of formation (kJ/mol)      : $EFORMO $EFORMF"   | tee -a $LOG 
-      echo "Hydrogen bond energy (kJ/mol)     : $EHBOO  $EHBOF"    | tee -a $LOG 
-      echo "Number of hydrogen bonds          : $NHBOO  $NHBOF"    | tee -a $LOG 
-      echo "Number of bumps                   : $NBUMPO  $NBUMPF"  | tee -a $LOG 
-      echo "Number of hydrophobic interactions: $NHYPHO  $NHYPHF"  | tee -a $LOG 
-      echo "Hydrophobic interaction strength  : $SHYPHO  $SHYPHF"  | tee -a $LOG 
-      echo "Number of Pi-Pi interactions      : $NPIPIO  $NPIPIF"  | tee -a $LOG 
-      echo "Pi-Pi interaction strength        : $SPIPIO  $SPIPIF"  | tee -a $LOG 
-      echo "Number of cation-Pi interactions  : $NCATPO  $NCATPF"  | tee -a $LOG 
-      echo "Cation-Pi interaction strength    : $SCATPO  $SCATPF"  | tee -a $LOG 
-      echo " "                                                     | tee -a $LOG 
-      echo "Atoms shifted more than ${SHIFTCO}A     : $NSHIFT"     | tee -a $LOG 
-      echo "All atom RMSD for residue (A)     : ${RMSD}"           | tee -a $LOG 
-      echo " "                                                     | tee -a $LOG 
-    endif
-  endif  
-end
-
+      #Give summary
+      echo " "                                                              | tee -a $LOG 
+      echo "****** Ligand validation details ($RESID $CHID $RESNUM$INS) ******" | tee -a $LOG
+      echo " "                                                              | tee -a $LOG 
+      echo "                                    Before  Final"          | tee -a $LOG 
+      echo "Real-space R-factor               : $LIGRSRO   $LIGRSRF"    | tee -a $LOG 
+      echo "Real-space correlation            : $LIGCCO   $LIGCCF"      | tee -a $LOG
+      echo "EDIAm density fit                 : $LIGEDIAO   $LIGEDIAF"  | tee -a $LOG
+      echo "OPIA density coverage (%)         : $LIGOPIAO    $LIGOPIAF" | tee -a $LOG   
+      echo " "                                                          | tee -a $LOG 
+      if ($?YASARA) then
+        echo "Energy of formation (kJ/mol)      : $EFORMO $EFORMF"   | tee -a $LOG 
+        echo "Hydrogen bond energy (kJ/mol)     : $EHBOO  $EHBOF"    | tee -a $LOG 
+        echo "Number of hydrogen bonds          : $NHBOO  $NHBOF"    | tee -a $LOG 
+        echo "Number of bumps                   : $NBUMPO  $NBUMPF"  | tee -a $LOG 
+        echo "Number of hydrophobic interactions: $NHYPHO  $NHYPHF"  | tee -a $LOG 
+        echo "Hydrophobic interaction strength  : $SHYPHO  $SHYPHF"  | tee -a $LOG 
+        echo "Number of Pi-Pi interactions      : $NPIPIO  $NPIPIF"  | tee -a $LOG 
+        echo "Pi-Pi interaction strength        : $SPIPIO  $SPIPIF"  | tee -a $LOG 
+        echo "Number of cation-Pi interactions  : $NCATPO  $NCATPF"  | tee -a $LOG 
+        echo "Cation-Pi interaction strength    : $SCATPO  $SCATPF"  | tee -a $LOG 
+        echo " "                                                     | tee -a $LOG 
+        echo "Atoms shifted more than ${SHIFTCO}A     : $NSHIFT"     | tee -a $LOG 
+        echo "All atom RMSD for residue (A)     : ${RMSD}"           | tee -a $LOG 
+        echo " "                                                     | tee -a $LOG 
+      endif
+    endif  
+  end
+endif
 
 #Report over new ligands
 foreach LIG (`echo $NLIG_LIST | sed 's/:/ /g'`)
@@ -10386,7 +10417,7 @@ echo -n "$SOLVENT $VDWPROBE $IONPROBE $RSHRINK $DOTLS $NTLS $OPTTLSG $ORITLS $LE
 echo -n "$WAVELENGTH $ISTWIN $SOLVD $EXPTYP $COMPLETED $NOPDB $NOSF $USIGMA $ZCALERR $TIME $RESOTYPE $FALSETWIN $TOZRAMA $TFZRAMA $TOCHI12 $TFCHI12 $TOZPAK2 $TFZPAK2 $TOWBMPS $TFWBMPS $TOHBSAT $TFHBSAT $OHRMSZ $NHRMSZ $FHRMSZ " >> $WORKDIR/data.txt
 echo -n "$TOZPAK1 $TFZPAK1 $NLOOPS $NMETALREST2 $OSZRAMA $NSZRAMA $FSZRAMA $OSCHI12 $NSCHI12 $FSCHI12 $SRFRRAT $ZRFRRATCAL $ZRFRRATTLS $ZRFRRATFIN $GOT_PROT $GOT_NUC " >> $WORKDIR/data.txt
 echo -n "$NNUCLEICREST $OBPHBRMSZ $NBPHBRMSZ $FBPHBRMSZ $OSHEAR $NSHEAR $FSHEAR $OSTRETCH $NSTRETCH $FSTRETCH $OBUCKLE $NBUCKLE $FBUCKLE $OPROPEL $NPROPEL $FPROPEL $OCONFAL $NCONFAL $FCONFAL $TOCONFAL $TNCONFAL $TFCONFAL " >> $WORKDIR/data.txt
-echo    "$ODNRMSD $NDNRMSD $FDNRMSD $OBPGRMSZ $NBPGRMSZ $FBPGRMSZ $TOBPGRMSZ $TFBPGRMSZ $FSCWCAL $FSCFCAL $FSCWTLS $FSCFTLS $FSCWFIN $FSCFFIN" >> $WORKDIR/data.txt
+echo    "$ODNRMSD $NDNRMSD $FDNRMSD $OBPGRMSZ $NBPGRMSZ $FBPGRMSZ $TOBPGRMSZ $TFBPGRMSZ $FSCWCAL $FSCFCAL $FSCWTLS $FSCFTLS $FSCWFIN $FSCFFIN $GOT_CARB" >> $WORKDIR/data.txt
 cp $WORKDIR/data.txt $TOUTPUT/
 if ($?COMMENT) then
   python3 $TOOLS/txt2json.py -i $WORKDIR/data.txt -o $TOUTPUT/tdata.json -c "$COMMENT"

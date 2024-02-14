@@ -217,6 +217,7 @@ JSON_VAR['FSCWTLS'] = 'float'
 JSON_VAR['FSCFTLS'] = 'float'
 JSON_VAR['FSCWFIN'] = 'float'
 JSON_VAR['FSCFFIN'] = 'float'
+JSON_VAR['GOT_CARB'] = 'bool'
 
 # The data is space-delimited, except for the spacegroup between quotes
 RE_COL = re.compile(r"'[^']+'|[^'\s]+")
