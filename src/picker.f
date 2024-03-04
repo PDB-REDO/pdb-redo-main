@@ -1,6 +1,6 @@
       PROGRAM PICKER
 C=======================================================================
-C  Version 7.00 2020-06-01
+C  Version 7.01 2024-03-04
 C  Returns the refinement setting for the best structure based on a
 C  typical input file. Dedicated software, not for general use!
 C
@@ -52,11 +52,16 @@ C    Perrakis: "PDB_REDO: constructive validation, more than just
 C    looking for errors" Acta Cryst. D68, p. 484-496 (2012)
 C              
 C Changelog:
+C Version 7.01:
+C - Further tuning in case of R-free vs LLFREE conflicts.
+C
 C Version 7.00
 C - Model rejection is now directly on the R-free/R ratio instead of on
 C   the R-free Z-score.
 C - More elegant resolution of conflicts between the best R-free and the
 C   best LLFREE.
+C - Added the -i switch which set the the values of the significance 
+C   test a bit stricter. Only works in combination with -s. 
 C
 C Version 6.02
 C - Bugfix for forced model selection.
@@ -119,7 +124,7 @@ C=======================================================================
 C-----Declare the basic variables and parameters
       INTEGER   I, J, K, STATUS, MAXLIN
       CHARACTER VERS*4
-      PARAMETER (VERS='7.00')
+      PARAMETER (VERS='7.01')
 C-----MAXLIN is the maximum number of refinement settings that can be
 C     evaluated
       PARAMETER (MAXLIN=40)
@@ -128,7 +133,7 @@ C     evaluated
      +          VERBOS, SIGNIF, ADVANC, ESTRIC, NORMSZ, LENIENT      
       REAL      RFACTR, RFREER, LLFRER, RFRRAT, SRFRRAT, RMSZB, RMSZA,
      +          OLDRAT, DIFFR,  RFZR,   RFREEO, ODIFF, MAXRAT, RRAT,
-     +          ERRORR, LLFRER2, RFREER2
+     +          ERRORR, LLFRER2, RFREER2, TOLL,LRT
       INTEGER   GETINT, NCOND,  ARGS,   NTEST,  EXTRA,  BLLFR, BRFREE, 
      +          BDIFF,  BRFZ,   BRAT, BLLFR2, BRFREE2 
       DOUBLE PRECISION  GTREAL
@@ -173,8 +178,7 @@ C=========================== Help function=============================C
      +          'asing complexity or decreasing restraint weight.'
       WRITE(6,*)'-e Extra strict. The difference between R and R-free'//
      +          ' may not exceed twice the original difference.'
-      WRITE(6,*)'-l Lenient. The difference between R and R-free'//
-     +          ' may not exceed twice the original difference.'     
+      WRITE(6,*)'-i foldIt. Special mode for FoldIt selection'  
       WRITE(6,*)'-z No rmsZ. The rmsZ values for bonds and angles are'//
      +          ' not considered for model selection.'
       WRITE(6,*)'    '
@@ -189,6 +193,8 @@ C--------------------------- Main program -----------------------------C
 C-----Initialise
       RMSZB   = 1.000
       RMSZA   = 1.000
+      TOLL    = 0.5
+      LRT     = 5.0
       EXTRA   = 0
       BLLFR   = 0
       BLLFR2  = 0
@@ -228,8 +234,9 @@ C-------Are there any flags?
         ELSE IF ((C2JUNK.EQ.'-z').OR.(C2JUNK.EQ.'-Z')) THEN
           NORMSZ = .TRUE.
           EXTRA  = EXTRA+1
-        ELSE IF ((C2JUNK.EQ.'-l').OR.(C2JUNK.EQ.'-L')) THEN
-          LENIENT = .TRUE.
+        ELSE IF ((C2JUNK.EQ.'-i').OR.(C2JUNK.EQ.'-I')) THEN
+          TOLL   = 1.0
+          LRT    = 6.7
           EXTRA  = EXTRA+1  
         ELSE
 	  EXTRA = EXTRA+1
@@ -313,9 +320,9 @@ C-------Only get here if no errors!
      +  ANGLEZ(NCOND),CHIRAL(NCOND)
         DIFF(NCOND)   = RFREE(NCOND) - RFACT(NCOND)
         RFERR(NCOND)  = RFREE(NCOND)/SQRT(1.0*NTEST) 
-        IF (LENIENT.EQV..TRUE.) THEN
-          RFREE(NCOND) = RFREE(NCOND) - RFERR(NCOND)
-        END IF
+C        IF (LENIENT.EQV..TRUE.) THEN
+C          RFREE(NCOND) = RFREE(NCOND) - RFERR(NCOND)
+C        END IF
         ERROR(NCOND)= 0
         RAT(NCOND)=RFREE(NCOND)/RFACT(NCOND)
         GO TO 100
@@ -377,7 +384,7 @@ C-------Reject all the problem conditions
             ERROR(J) = ERROR(J)+0.5
           END IF
         END IF  
-	    IF (RAT(J).GT.MAXRAT) THEN
+        IF (RAT(J).GT.MAXRAT) THEN
           IF (VERBOS.EQV..TRUE.) THEN
             WRITE(6,*) COND(J), " Bad R-free/R: ", RAT(J)   
           END IF
@@ -431,7 +438,7 @@ C        PRINT*, J, ERROR(J)
 C-------Is any of the scores better than the reference        
         IF ((ERROR(J).LE.ERRORR).AND.(LLFREE(J).LT.LLFRER)) THEN
 C         Best cases        
-          IF ((SIGNIF.EQV..TRUE.).AND.(LLFRER-LLFREE(J).GE.5.0)) THEN
+          IF ((SIGNIF.EQV..TRUE.).AND.(LLFRER-LLFREE(J).GE.LRT)) THEN
             BLLFR2 = BLLFR
             BLLFR  = J
             LLFRER2 = LLFRER
@@ -452,7 +459,7 @@ C         Possible second best cases
 C-------Does R-free improve? 
         IF ((ERROR(J).LE.ERRORR).AND.(RFREER-RFREE(J).GE.0.0)) THEN
           IF ((SIGNIF.EQV..TRUE.).AND.
-     +        (RFREER-RFREE(J).GT.0.5*RFERR(J))) THEN
+     +        (RFREER-RFREE(J).GT.TOLL*RFERR(J))) THEN
             BRFREE2 = BRFREE
             BRFREE = J
             RFREER = RFREE(J)
@@ -468,7 +475,7 @@ C         original R-free (RFREEO)
         ELSE IF ((ERROR(J).LE.ERRORR).AND.(RFREEO-RFREE(J).GE.0.0).AND.
      +    (BRFREE.EQ.0)) THEN
           IF ((SIGNIF.EQV..TRUE.).AND.
-     +        (RFREER-RFREE(J).GT.0.5*RFERR(J))) THEN
+     +        (RFREER-RFREE(J).GT.TOLL*RFERR(J))) THEN
             BRFREE2 = BRFREE
             BRFREE = J
             RFREER = RFREE(J)
@@ -529,13 +536,9 @@ C       Check for a compromise (second bests agree)
           OPTCON=COND(BLLFR2)
         ELSE 
           IF(VERBOS.EQV..TRUE.)THEN
-            WRITE(6,*) 'Take setting with best R-free/R'
+            WRITE(6,*) 'Take setting with lowest R-free'
           END IF 
-          IF(RAT(BLLFR).LT.RAT(BRFREE)) THEN
-            OPTCON=COND(BLLFR)
-          ELSE
-            OPTCON=COND(BRFREE)
-          END IF
+          OPTCON=COND(BRFREE)
         END IF  
       END IF
 

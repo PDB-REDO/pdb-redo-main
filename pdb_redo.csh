@@ -139,11 +139,24 @@ endif
 # - x3dna-dssr     Needed for nucleic acid restraints and validation.
 #
 ####################################################### Change log #######################################################
-set VERSION = '8.05' #PDB-REDO version
+set VERSION = '8.06' #PDB-REDO version
 
+# Version 8.06:
+# - Added an option that tests whether an alternative FoldIt model works better in refinement.
+# - For the FoldIt implementation resolution-based settings are configured earlier in the pipeline.
+# - The FoldIt model selection is only done before the paired refinement. If a new resolution is set the FoldIt test is 
+#   not repeated.  
+# - Replaced pdb2fasta by cif2fasta.
+# - User input is now explicitly tested for having the sequence in either the input model or a user provided fasta file.
+# - Passing user's restraint files to Refmacat in rigid-body refinement as Gemmi needs them. 
+# - Started using an mmCIF version of extractor. 
+# - Added a catch for having an empty extracted TLS goup definition.
+# - Added a fix for Refmacat writing corrupt CISPEP records when writing pdb output.
+#
 # Version 8.05:
 # - Changed the B-factor model selection. TLS model selection is now performed first. If successful, the B-factor model 
 #   selection can be ANISO versus ISO + TLS rather than ANISO versus ISO.
+# - Started using RABDAM to detect radiation damage.
 #
 # Version 8.04:
 # - Added explicit warning for compounds without restraints.
@@ -673,9 +686,9 @@ if ($1 == "--local") then
 endif
 
 #Write out header
-echo " __   __   __     __   ___  __   __    _     __   __" | tee -a $LOG
+echo " __   __   __     __   ___  __   __    _     __   _ " | tee -a $LOG
 echo "|__) |  \ |__) _ |__) |__  |  \ /  \  (_)   / /\ |_ " | tee -a $LOG
-echo "|    |__/ |__)   |  \ |___ |__/ \__/  (_) o \/_/ __)" | tee -a $LOG
+echo "|    |__/ |__)   |  \ |___ |__/ \__/  (_) o \/_/ |_)" | tee -a $LOG
 echo " "
 
 #Font for the header
@@ -1173,7 +1186,7 @@ endif
 ########################################## Initialise the provenance record ##############################################
 
 #Spawn reusable versions file or bypass the file creation
-jq --arg version $VERSION --arg pdbid $PDBID --argjson cedit $CEDIT --argjson redit $REDIT -n '{"data": {"PDBID":$pdbid, "coordinates_revision_date_pdb": null, "coordinates_revision_major_mmCIF": null, "coordinates_revision_minor_mmCIF": null, "coordinates_edited": $cedit, "reflections_revision": null, "reflections_edited": $redit}, "software":{"pdb-redo": {"version":$version, "used":true}}}' > $WORKDIR/versions.json
+jq --arg version $VERSION --arg pdbid $PDBID --argjson cedit $CEDIT --argjson redit $REDIT -n '{"data": {"PDBID":$pdbid, "coordinates_revision_date_pdb": null, "coordinates_revision_major_mmCIF": null, "coordinates_revision_minor_mmCIF": null, "coordinates_edited": $cedit, "reflections_revision": null, "reflections_edited": $redit, "foldit_used": false, "foldit_id": null}, "software":{"pdb-redo": {"version":$version, "used":true}}}' > $WORKDIR/versions.json
   
 #Add the other programs  
 $TOOLS/versions.csh $TOOLS $WORKDIR/versions.json
@@ -1219,6 +1232,13 @@ if ($DOWNLOAD == 1) then
   cd $WORKDIR
 endif
 
+#Get the sequence
+if ($INSEQ != "") then
+  echo "-Importing amino acid sequence" | tee -a $LOG
+  cp $INSEQ $WORKDIR/user.fasta
+  set FASTAIN = "--fasta $WORKDIR/user.fasta"
+endif
+
 #Coordinate file
 if ($NOPDB == 0) then
   if ($LOCAL == 1) then
@@ -1251,7 +1271,7 @@ if ($NOPDB == 0) then
           echo "Your input coordinate file has Buster-specific format errors. Trying to compensate." | tee -a $LOG
           echo " " | tee -a $LOG
         else
-          echo "-The coordinate file has format errors. Trying to compensate." | tee -a $LOG
+          echo " o The coordinate file has format errors. Trying to compensate." | tee -a $LOG
         endif
         #De-Buster and continue
         cp $WORKDIR/cleanpdb.pdb $WORKDIR/cleanpdb.bak
@@ -1268,7 +1288,7 @@ if ($NOPDB == 0) then
           echo "Some residues have no chain identifier. Trying to compensate." | tee -a $LOG
           echo " " | tee -a $LOG
         else
-          echo "-Some residues have no chain identifier. Trying to compensate." | tee -a $LOG
+          echo " o Some residues have no chain identifier. Trying to compensate." | tee -a $LOG
         endif
         
         #Use sed to set the missing chainID to 'z'
@@ -1285,7 +1305,7 @@ if ($NOPDB == 0) then
           echo "Your input coordinate file has phenix.refine-specific format errors. Trying to compensate." | tee -a $LOG
           echo " " | tee -a $LOG
         else
-          echo "-The coordinate file has format errors. Trying to compensate." | tee -a $LOG
+          echo " o The coordinate file has format errors. Trying to compensate." | tee -a $LOG
         endif
         #De-Phenix and continue
         cp $WORKDIR/cleanpdb.pdb $WORKDIR/cleanpdb.bak
@@ -1297,8 +1317,14 @@ if ($NOPDB == 0) then
         #Prepend a HEADER LINE
         sed -i '1s/^/HEADER    SOME MACROMOLECULE                      01-JAN-50   XXXX\n/' $WORKDIR/cleanpdb.pdb
       endif
-      
-      #Do the file conversion
+
+      #If there is a user FASTA file or are there SEQRES records?
+      if (! -e $WORKDIR/user.fasta && `grep -c '^SEQRES' $WORKDIR/${PDBID}_cleanpdb.pdb` == 0) then
+        echo " o The protein sequence is not defined, using the coordinates to construct the sequence" | tee -a $LOG
+        set TRUSTSEQ = 1
+      endif
+              
+      #Do the file conversion      
       $TOOLS/pdb2cif $WORKDIR/cleanpdb.pdb $WORKDIR/${PDBID}.xyz.cif >& $WORKDIR/pdb2cif.log
       if (! -e $WORKDIR/${PDBID}.xyz.cif) then
         echo " " | tee -a $LOG
@@ -1314,7 +1340,15 @@ if ($NOPDB == 0) then
         exit(1)
       endif           
     else if (-e $XYZIN) then 
+      #Copy over the mmCIF file from the user
       cp $XYZIN $WORKDIR/${PDBID}.xyz.cif
+      
+      #Is there a sequence defined in the input file?
+      if (`$TOOLS/cif-grep -c -i _entity_poly.pdbx_seq_one_letter_code_can . $WORKDIR/${PDBID}.xyz.cif` == 0 && \
+          `$TOOLS/cif-grep -c -i _entity_poly.pdbx_seq_one_letter_code . $WORKDIR/${PDBID}.xyz.cif` == 0 && ! -e $WORKDIR/user.fasta) then
+        set TRUSTSEQ = 1
+      endif
+     
     else
       echo " " | tee -a $LOG
       echo "FATAL ERROR!" | tee -a $LOG
@@ -2085,7 +2119,7 @@ endif
 echo "-Extracting data from the coordinate file" | tee -a $LOG
 
 #PROGRAM: extractor
-$TOOLS/extractor2 \
+$TOOLS/extractor \
 $DICTCMD \
 --pdb_redo_data $TOOLS/pdb-redo-data.cif \
 --tls_out $WORKDIR/$PDBID.tls \
@@ -2130,8 +2164,11 @@ else
 endif
 
 #Are there any TLS groups from extractor?
-if (-e $WORKDIR/$PDBID.tls) then
+if (! -z $WORKDIR/$PDBID.tls) then
   echo " o TLS groups extracted: `grep -c 'TLS' $WORKDIR/$PDBID.tls`" | tee -a $LOG
+else
+  echo " o TLS groups extracted: 0" | tee -a $LOG
+  rm $WORKDIR/$PDBID.tls
 endif
 if (-e $WORKDIR/${PDBID}-chains.tls) then
   echo " o TLS groups created  : `grep -c 'TLS' $WORKDIR/${PDBID}-chains.tls`" | tee -a $LOG
@@ -2169,9 +2206,9 @@ set GAMMA      = `$TOOLS/cif-grep -i _cell.angle_gamma . $WORKDIR/$PDBID.extract
 set SPACEGROUP = `$TOOLS/cif-grep -i _extracted_info.spacegroup . $WORKDIR/$PDBID.extracted | tr -d "'"`
 
 #Data properties
-set RESOLUTION = `$TOOLS/cif-grep -i _extracted_info.resolution . $WORKDIR/$PDBID.extracted`
-set DATARESH   = `$TOOLS/cif-grep -i _extracted_info.resolution_high . $WORKDIR/$PDBID.extracted`
-set DATARESL   = `$TOOLS/cif-grep -i _extracted_info.resolution_low . $WORKDIR/$PDBID.extracted`
+set RESOLUTION = `$TOOLS/cif-grep -i _extracted_info.resolution . $WORKDIR/$PDBID.extracted | awk '{printf ("%.2f\n", $1)}'`
+set DATARESH   = `$TOOLS/cif-grep -i _extracted_info.resolution_high . $WORKDIR/$PDBID.extracted | awk '{printf ("%.2f\n", $1)}'`
+set DATARESL   = `$TOOLS/cif-grep -i _extracted_info.resolution_low . $WORKDIR/$PDBID.extracted | awk '{printf ("%.2f\n", $1)}'`
 set REFCNT     = `$TOOLS/cif-grep -i _extracted_info.reflection_count . $WORKDIR/$PDBID.extracted`
 set TSTCNT     = `$TOOLS/cif-grep -i _extracted_info.testset_count . $WORKDIR/$PDBID.extracted`
 set TSTPRC     = `$TOOLS/cif-grep -i _extracted_info.testset_perc . $WORKDIR/$PDBID.extracted | awk '{printf ("%.1f\n", $1)}'`
@@ -2273,79 +2310,50 @@ if ($STRICTNCS == 1) then
   set ATMCNT = `echo $NMTRIX $ATMCNT | awk '{print $1*$2}'`
 endif
 
-#Get the sequence
-if ($INSEQ != "") then
-  echo "-Importing amino acid sequence" | tee -a $LOG
-  cp $INSEQ $WORKDIR/user.fasta
-  set FASTAIN = "-fastain $WORKDIR/user.fasta"
-endif
 
-#Extract and or check the sequence. PROGRAM pdb2fasta
+#Extract and or check the sequence. PROGRAM cif2fasta
 if ($GOT_PROT == 'T') then
-  cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.pdb2fasta.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-
-  echo " o Extracting the amino acid sequence" | tee -a $LOG
-  $TOOLS/pdb2fasta \
+  echo " o Checking for homology" | tee -a $LOG
+  
+  #Extract and, if needed, correct the sequence
+  echo "   * Running cif2fasta" | tee -a $LOG
+  cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.cif2fasta.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
+  
+  $TOOLS/cif2fasta \
   -v \
+  --coords $WORKDIR/${PDBID}_prepped.cif \
   $FASTAIN \
-  -pdb $WORKDIR/${PDBID}_prepped.cif \
-  -fasta $WORKDIR/$PDBID.fasta \
-  -tools $TOOLS \
-  >& $WORKDIR/pdb2fasta.log
-  #make sure there is a fasta file
-  if (! -e $WORKDIR/$PDBID.fasta) then
-    if ($DOHOMOLOGY == 1) then
-      echo "  * No protein sequence extracted. Not using homology restraints." | tee -a $LOG
-      set DOHOMOLOGY = 0
+  --output ${PDBID}_c2f \
+  --pdb-redo-data $TOOLS/pdb-redo-data.cif >& $WORKDIR/cif2fasta.log
+  
+  #Run blast if cif2fasta was successful
+  if (! -z $WORKDIR/${PDBID}_c2f.fa) then
+    cp $WORKDIR/${PDBID}_c2f.fa $WORKDIR/${PDBID}.fasta
+    
+    if ($?BLASTP) then
+      echo "   * Running BLASTp against the PDB-REDO databank" | tee -a $LOG
+      cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.BLASTp.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
+  
+      $BLASTP \
+      -evalue 0.001 \
+      -num_descriptions 9999 \
+      -num_alignments 9999 \
+      -query $WORKDIR/$PDBID.fasta \
+      -out $WORKDIR/$PDBID.blast \
+      -db $TOOLS/pdbredo_seqdb.txt >& $WORKDIR/blast.log
     else
-      echo "   * No protein sequence extracted." | tee -a $LOG
-    endif
-    echo "COMMENT: Cannot make fasta file" >> $DEBUG
-    echo "PDB-REDO,$PDBID"                 >> $DEBUG
-  else if (-e $WORKDIR/user.fasta) then
-    #There is a fasta file check if there were sequence conflicts
-    if (`grep -c 'mis-matched' $WORKDIR/pdb2fasta.log` > 0) then
-      #Show the sequince conflicts
-      echo " " | tee -a $LOG
-      echo "WARNING!" | tee -a $LOG
-      echo "--------" | tee -a $LOG
-      echo "Conflict(s) between the input sequence and the input model detected." | tee -a $LOG
-      echo "Please, check whether these conflicts can be resolved." | tee -a $LOG
-      echo " " | tee -a $LOG
-      echo "Details from pdb2fasta output:" | tee -a $LOG
-      grep 'mis-matched' $WORKDIR/pdb2fasta.log | cut -c 10- | tee -a $LOG
-      echo "--------" | tee -a $LOG
-      echo " " | tee -a $LOG
-    endif
-    #Check whether there was a dodgy input file
-    if (`grep -c 'could not be matched to any FASTA input sequence' $WORKDIR/pdb2fasta.log` > 0) then
-      set TRUSTSEQ = 1
+      echo "   * BLASTp is missing or not configured properly" | tee -a $LOG
+      echo "   * Cannot generate homology-based restraints"    | tee -a $LOG
+      set DOHOMOLOGY = 0
     endif
   else  
-    #Is there a sequence defined in the input file?
-    if (`$TOOLS/cif-grep -c -i _entity_poly.pdbx_seq_one_letter_code_can . $WORKDIR/cache.cif` == 0 && \
-        `$TOOLS/cif-grep -c -i _entity_poly.pdbx_seq_one_letter_code . $WORKDIR/cache.cif` == 0) then
-      set TRUSTSEQ = 1
-    endif
-  endif
-  
-  #Find PDB entries with homologous sequences. PROGRAM: BLASTp
-  if ($?BLASTP) then
-    cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.BLASTp.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-  
-    $BLASTP \
-    -evalue 0.001 \
-    -num_descriptions 9999 \
-    -num_alignments 9999 \
-    -query $WORKDIR/$PDBID.fasta \
-    -out $WORKDIR/$PDBID.blast \
-    -db $TOOLS/pdbredo_seqdb.txt >& $WORKDIR/blast.log
+    echo "   * No protein sequence extracted. Not using homology restraints."| tee -a $LOG 
+    set DOHOMOLOGY = 0
+    cp $WORKDIR/${PDBID}_prepped.cif $WORKDIR/${PDBID}_c2f.cif
   else
-    echo " o BlastP is missing or not configured properly" | tee -a $LOG
-    echo " o Cannot generate homology-based restraints"    | tee -a $LOG
-    echo "homology: BlastP unavailable" >> $DEBUG
-    echo "PDB-REDO,$PDBID"              >> $DEBUG
   endif
+else  
+  cp $WORKDIR/${PDBID}_prepped.cif $WORKDIR/${PDBID}_c2f.cif
 endif
 
 #Check to see whether a suitable set of experimental sigmas exists (checked now because DYEAR is needed)
@@ -3142,7 +3150,7 @@ endif
 
 #Run refmac for 0 cycles to check R-factors (with TLS). PROGRAM: REFMAC
 refmacat \
-XYZIN  $WORKDIR/${PDBID}_prepped.cif \
+XYZIN  $WORKDIR/${PDBID}_c2f.cif \
 XYZOUT $WORKDIR/${PDBID}_0cyc$ISTLS.pdb \
 HKLIN  $WORKDIR/$PDBID.mtz \
 HKLOUT $WORKDIR/${PDBID}_0cyc$ISTLS.mtz \
@@ -3305,47 +3313,6 @@ if ($status || `grep -c 'Error: Fatal error. Cannot continue' $WORKDIR/${PDBID}_
       echo "COMMENT: refmac: residue or atom naming conflict" >> $WHYNOT
       echo "PDB-REDO,$PDBID"                                  >> $WHYNOT
 
-#     #Check for problems making a compound description
-#     else if (`grep -a -c 'is not completely connected' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0) then
-# 
-#       #Give PDB_RED mode-specific error messages
-#       if ($LOCAL == 1) then
-#         #Give the long error message
-#         echo " " | tee -a $LOG
-#         echo "FATAL ERROR!" | tee -a $LOG
-#         echo "------------" | tee -a $LOG
-#         echo "Cannot create restraint file for residue:" | tee -a $LOG
-#         grep 'program will create complete description for' $WORKDIR/${PDBID}_0cyc$ISTLS.log | cut -d ':' -f 2 | sort -u | tee -a $LOG
-#         echo "Please, supply a restraint file using '--restin=Your_restraints.cif'." | tee -a $LOG
-#       else
-#         #Give the short error message
-#         echo " o Cannot create restraint file. Cannot continue." | tee -a $LOG
-#       endif
-# 
-#       #Write WHY_NOT comment
-#       echo "COMMENT: refmac: cannot create restraint file" >> $WHYNOT
-#       echo "PDB-REDO,$PDBID"                               >> $WHYNOT
-
-#     #Check for NCS alignment problems
-#     else if (`grep -a -c 'ncs_ncs_generate.f90' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0 && ! -e $WORKDIR/renumber.json) then
-#         
-#       #Renumber the PDB file and start again
-#       cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.rnbterror.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-#       
-#       cp $WORKDIR/${PDBID}_prepped.pdb $WORKDIR/${PDBID}_prepped.bak
-#       $TOOLS/rnbterror -v \
-#       -jsonout $WORKDIR/renumber.json \
-#       -pdbin $WORKDIR/${PDBID}_prepped.bak \
-#       -pdbout $WORKDIR/${PDBID}_prepped.pdb > $WORKDIR/renumber.log
-#           
-#       #Write DEBUG message
-#       echo " o Problem with NCS alignment. Renumbering terminal residues and restarting." | tee -a $LOG
-#       echo "COMMENT: residues renumbered" >> $DEBUG
-#       echo "PDB-REDO,$PDBID"              >> $DEBUG  
-#      
-#       #Start again
-#       goto renumbered
-
     #All other problems
     else
       echo " o Problem with refmac. Cannot continue." | tee -a $LOG
@@ -3362,178 +3329,6 @@ if ($status || `grep -c 'Error: Fatal error. Cannot continue' $WORKDIR/${PDBID}_
     exit(1)
   endif
 endif
-
-
-# #Check to see whether a new ligand was encountered (only if no extra restraints were provided).
-# if ("$INREST" == "") then
-#   if(-e $WORKDIR/${PDBID}_het.cif) then
-#     echo " " | tee -a $LOG
-#     echo -n " o New ligand encountered, retrying " | tee -a $LOG
-# 
-#     #Backup old files
-#     cp $WORKDIR/${PDBID}_0cyc$ISTLS.log $WORKDIR/${PDBID}_0cycv1.log
-#     if(-e $WORKDIR/${PDBID}_0cyc$ISTLS.pdb) then
-#       cp $WORKDIR/${PDBID}_0cyc$ISTLS.pdb $WORKDIR/${PDBID}_0cycv1.pdb
-#     endif
-# 
-#     #Start using the new ligand library
-#     set LIBLIN = `echo LIBIN $WORKDIR/${PDBID}_het.cif LIBOUT $WORKDIR/${PDBID}_het2.cif`
-# 
-#     #Rerun refmac for 0 cycles
-#     refmacat \
-#     XYZIN  $WORKDIR/${PDBID}_prepped.pdb \
-#     XYZOUT $WORKDIR/${PDBID}_0cyc$ISTLS.pdb \
-#     HKLIN  $WORKDIR/$PDBID.mtz \
-#     HKLOUT $WORKDIR/${PDBID}_0cyc$ISTLS.mtz \
-#     $LIBLIN \
-#     $TLSLIN \
-#     $SCATLIN \
-# <<eof >& $WORKDIR/${PDBID}_0cyc$ISTLS.log
-#       $SCATTERCMD
-#       make check NONE
-#       make hydrogen $HYDROGEN hout NO peptide NO cispeptide YES -
-# 	ssbridge $SSBOND $RSYMM $SUGAR $CONNECTIVITY link NO
-#       refi type REST resi MLKF meth CGMAT bref MIXE
-#       $REFIRES
-#       ncyc 0
-#       tlsd waters exclude
-#       scal type $SOLVENT $SCALING
-#       solvent YES
-#       $MASKPAR
-#       $LOWMEM
-#       weight $WGTSIG MATRIX 0.5
-#       monitor MEDIUM torsion 10.0 distance 10.0 angle 10.0 plane 10.0 -
-#         chiral 10.0  bfactor 10.0 bsphere  10.0 rbond 10.0 ncsr  10.0
-#       $NCSTYPE
-#       $NCSALIGN
-#       $NCSNEIGH
-#       $NCSSTRICT
-#       labin  FP=FP SIGFP=SIGFP FREE=FREE $PHASES $ANOMCOEF
-#       $ANOMCMD
-#       pdbout copy remarks 200 280 350
-#       pdbout copy expdta
-#       NOHARVEST
-#       END
-# eof
-#     if($status) then
-#       #Try to give a specific error message
-#       #Check to see if there is a problem with alternate residues
-#       if (`grep -c 'different residues have the same number' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0) then
-#         if ($LOCAL == 1) then
-#           #Give the long error message
-#           echo " " | tee -a $LOG
-#           echo "FATAL ERROR!" | tee -a $LOG
-#           echo "------------" | tee -a $LOG
-#           echo "Refmac had problems using these residues with alternate identities:" | tee -a $LOG
-#           grep 'ERROR:' $WORKDIR/${PDBID}_0cyc$ISTLS.log | cut -c 12- | tee -a $LOG
-#           echo "This problem may be solved by renumbering residues or by ensuring that" | tee -a $LOG
-#           echo "alternate atoms directly follow eachother in the PDB file." | tee -a $LOG
-#           echo "See the file $WORKDIR/${PDBID}_0cyc$ISTLS.log for details."  | tee -a $LOG
-#         else
-#           #Give the simple error message
-#           echo " " | tee -a $LOG
-#           echo " o Cannot use structure with alternate residues" | tee -a $LOG
-#         endif
-#         #Write out WHY_NOT mesage
-#         echo "COMMENT: refmac: error with alternate residues" >> $WHYNOT
-#         echo "PDB-REDO,$PDBID"                                >> $WHYNOT
-#       endif
-# 
-#       #Check to see if there are dictionary problems
-#       if (! -e $WORKDIR/${PDBID}_het2.cif) then
-#         #Check for atoms not described in the dictionary
-#         if (`grep -a -c 'is absent in the library' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0) then
-#           if ($LOCAL == 1) then
-#             #Give the long error message
-#             echo " " | tee -a $LOG
-#             echo "FATAL ERROR!" | tee -a $LOG
-#             echo "------------" | tee -a $LOG
-#             echo "Some residues have (atoms with) naming conflicts." | tee -a $LOG
-#             echo "Please, use standard atom and residue names in your input PDB file or upload a custom restraint file." | tee -a $LOG
-#             echo " " | tee -a $LOG
-#             echo "Residue  PDB standard description" | tee -a $LOG
-#             echo "---------------------------------" | tee -a $LOG
-#             foreach HETID (`grep 'is absent in the library' $WORKDIR/${PDBID}_0cyc$ISTLS.log | cut -c 22-37 | sort -u`)
-#               set HETID1 = `echo $HETID |cut -c 1-1`
-#               #Is the entry in LigandExpo
-#               wget --spider -q http://ligand-expo.rcsb.org/reports/$HETID1/$HETID
-#               if ($status) then
-#                 echo "$HETID      New compound: make sure all $HETID residues are consistent within the input PDB" | tee -a $LOG
-#               else
-#                 echo "$HETID      http://ligand-expo.rcsb.org/reports/$HETID1/$HETID" | tee -a $LOG
-#               endif
-#             end
-#             echo " " | tee -a $LOG
-# 
-#             #Give server-specific extra information
-#             if ($SERVER == 1) then
-#               echo "Details from Refmac output:" | tee -a $LOG
-#               grep ' ERROR :' $WORKDIR/${PDBID}_0cyc$ISTLS.log | tee -a $LOG
-#             else
-#               echo "See the file $WORKDIR/${PDBID}_0cyc$ISTLS.log for details." | tee -a $LOG
-#             endif
-#           else
-#             #Give the short error message
-#             echo " " | tee -a $LOG
-#             echo " o Residue or atom naming conflict. Cannot continue." | tee -a $LOG
-#           endif
-#           echo "COMMENT: refmac: residue or atom naming conflict" >> $WHYNOT
-#           echo "PDB-REDO,$PDBID"                                  >> $WHYNOT
-#         #Check for residues for which a restraint file cannot be generated
-#         else if (`grep -a -c 'is not completely connected' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0) then
-#           if ($LOCAL == 1) then
-#             #Give the long error message
-#             echo " " | tee -a $LOG
-#             echo "FATAL ERROR!" | tee -a $LOG
-#             echo "------------" | tee -a $LOG
-#             echo "Cannot create restraint file for residue:" | tee -a $LOG
-#             grep 'program will create complete description for' $WORKDIR/${PDBID}_0cyc$ISTLS.log | cut -d ':' -f 2 | sort -u
-#             echo "Please, supply a restraint file using '--restin=Your_restraints.cif'." | tee -a $LOG
-#           else
-#             #Give the short error message
-#             echo " " | tee -a $LOG
-#             echo " o Cannot create restraint file. Cannot continue." | tee -a $LOG
-#           endif
-#           echo "COMMENT: refmac: cannot create restraint file" >> $WHYNOT
-#           echo "PDB-REDO,$PDBID"                               >> $WHYNOT
-#         #Check for problems with local NCS restraints
-#         else if (`grep -a -c 'ncs_ncs_generate.f90' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0 && ! -e $WORKDIR/renumber.json) then
-#           #Renumber the PDB file and start again
-#           cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.rnbterror.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-#           cp $WORKDIR/${PDBID}_prepped.pdb $WORKDIR/${PDBID}_prepped.bak
-#           
-#           $TOOLS/rnbterror \
-#           -jsonout $WORKDIR/renumber.json \
-#           -pdbin $WORKDIR/${PDBID}_prepped.bak \
-#           -pdbout $WORKDIR/${PDBID}_prepped.pdb > $WORKDIR/renumber.log
-#           
-#           #Write DEBUG message
-#           echo " " | tee -a $LOG
-#           echo " o Problem with NCS alignment. Renumbering terminal residues and restarting." | tee -a $LOG
-#           echo "COMMENT: residues renumbered" >> $DEBUG
-#           echo "PDB-REDO,$PDBID"              >> $DEBUG  
-#           
-#           #Start again
-#           goto renumbered
-#          
-#         else
-#           echo " " | tee -a $LOG
-#           echo " o Problem with refmac. Cannot continue." | tee -a $LOG
-#           echo "COMMENT: refmac: error in initial R-free calculation" >> $WHYNOT
-#           echo "PDB-REDO,$PDBID"                                      >> $WHYNOT
-#         endif
-#       endif
-#       #Stop the run
-#       if ($SERVER == 1) then
-#         #Write out status files
-#         touch $STDIR/stoppingProcess.txt
-#         touch $STDIR/processStopped.txt
-#       endif
-#       cd $BASE
-#       exit(1)
-#     endif
-#   endif
-# endif
 
 #Check the value for LOGSTEP and RBLS (only once)
 if ($GOTOLD == 0) then
@@ -3563,7 +3358,7 @@ if ($ORITLS == 1) then
 
   #Rerun refmac for 0 cycles, again
   refmacat \
-  XYZIN  $WORKDIR/${PDBID}_prepped.cif \
+  XYZIN  $WORKDIR/${PDBID}_c2f.cif \
   XYZOUT $WORKDIR/${PDBID}_0cyc$ISTLS.pdb \
   HKLIN  $WORKDIR/$PDBID.mtz \
   HKLOUT $WORKDIR/${PDBID}_0cyc$ISTLS.mtz \
@@ -3654,7 +3449,7 @@ if ($LEGACY == 0 && $DOTWIN == 1) then
 
     #Run Refmac
     refmacat \
-    XYZIN  $WORKDIR/${PDBID}_prepped.cif \
+    XYZIN  $WORKDIR/${PDBID}_c2f.cif \
     XYZOUT $WORKDIR/${PDBID}_0cyc.pdb \
     HKLIN  $WORKDIR/$PDBID.mtz \
     HKLOUT $WORKDIR/${PDBID}_0cyc.mtz \
@@ -3765,9 +3560,9 @@ eof
             echo " " | tee -a $LOG
           else
             #Give small warning for databank mode
-            echo " o Data seems to have treated as twinnned before." | tee -a $LOG
-            echo "   * Phaser did not find significant twinning."    | tee -a $LOG
-            echo "   * Reluctantly treating the data as twinned."    | tee -a $LOG
+            echo " o Data seems to have treated as twinnned before" | tee -a $LOG
+            echo "   * Phaser did not find significant twinning"    | tee -a $LOG
+            echo "   * Reluctantly treating the data as twinned"    | tee -a $LOG
 
             set FALSETWIN = 1
             #Write DEBUG comment
@@ -3825,10 +3620,11 @@ if ($DORB == 1 && $RFACT != "NA" &&`$TOOLS/fitr $RFACT $RFREE $RCAL $RFCAL` == 0
 
   #Run Refmac
   refmacat \
-  XYZIN $WORKDIR/${PDBID}_prepped.cif \
+  XYZIN $WORKDIR/${PDBID}_c2f.cif \
   XYZOUT $WORKDIR/${PDBID}_refmacrb.pdb \
   HKLIN $WORKDIR/$PDBID.mtz \
   HKLOUT $WORKDIR/${PDBID}_refmacrb.mtz \
+  $LIBLIN \
   $SCATLIN \
 <<eof > $WORKDIR/${PDBID}_rb.log
     $SCATTERCMD
@@ -3869,15 +3665,6 @@ eof
     cd $BASE
     exit(1)
   endif
-
-#   #Transplant the LINKs if needed
-#   if (`grep -c ^LINK $WORKDIR/${PDBID}_prepped.pdb` != 0 && `grep -c ^LINK $WORKDIR/${PDBID}_refmacrb.pdb` == 0) then
-#     cp  $WORKDIR/${PDBID}_refmacrb.pdb $WORKDIR/${PDBID}_refmacrb.bak
-#     grep -B 100000 ^CRYST1 $WORKDIR/${PDBID}_refmacrb.bak | grep -v ^CRYST1 > $WORKDIR/${PDBID}_refmacrb.pdb
-#     grep ^LINK $WORKDIR/${PDBID}_prepped.pdb >> $WORKDIR/${PDBID}_refmacrb.pdb
-#     grep -A 250000 ^CRYST1 $WORKDIR/${PDBID}_refmacrb.bak >> $WORKDIR/${PDBID}_refmacrb.pdb
-#   endif
-
 
   #Now do another restrained refinement run to include the TLS contribution (if needed)
   if ($ORITLS == 1) then
@@ -4172,6 +3959,9 @@ else
   #Do nothing
 endif 
 
+#Drop the CISPEP records
+cp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_0cyc.bak
+grep -v '^CISPEP' $WORKDIR/${PDBID}_0cyc.bak > $WORKDIR/${PDBID}_0cyc.pdb
 
 ####################################### Decide on using detwinning in refinement #########################################
 
@@ -4339,147 +4129,7 @@ echo "R-free/R Z-score  : $ZRFRRATCAL" | tee -a $LOG
 echo " " | tee -a $LOG
 echo "sigma(R-free)     : $SIGRFCAL"   | tee -a $LOG
 echo "R-free Z-score    : $RFCALZ"     | tee -a $LOG 
-
-
-############################################ Fix atom chiralities if needed ##############################################
-
-#Count the chirality problems
-set CHIRERR = `grep -a -A 100 "Chiral volume deviations from the" $WORKDIR/${PDBID}_0cyc.log | grep -E "^.{19}mod" | wc -l`
-
-#Are fixes needed?
-if ($CHIRERR != 0) then
-
-  #Report
-  echo " " | tee -a $LOG
-  echo " " | tee -a $LOG
-  echo "****** Chirality validation ******" | tee -a $LOG
-  echo "-Found $CHIRERR chirality problems" | tee -a $LOG
-  echo " o Running chiron"   | tee -a $LOG
-
-  #Do the fixes and report
-  mv $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_0cyc.old
-
-  #PROGRAM: chiron
-  cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.chiron.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-  $TOOLS/chiron -v $TOOLS/pdb_redo.dat $WORKDIR/${PDBID}_0cyc.log $WORKDIR/${PDBID}_0cyc.old $WORKDIR/${PDBID}_0cyc.pdb > $WORKDIR/chiron.log
-  set CHIFIX = `grep "ters fixed" $WORKDIR/chiron.log | awk '{print $5}'`
-  echo "   * `grep 'tested' $WORKDIR/chiron.log`"         | tee -a $LOG
-  echo "   * `grep 'ters fixed' $WORKDIR/chiron.log`"     | tee -a $LOG
-  echo "   * `grep 'not fixed' $WORKDIR/chiron.log`"      | tee -a $LOG
-  echo "   * `grep 'Unknown chiral' $WORKDIR/chiron.log`" | tee -a $LOG
-
-  #Make a debug record for unfixable problems
-  if (`grep -c Unknown $WORKDIR/chiron.log` != 0 && `grep Unknown $WORKDIR/chiron.log | awk '{print $5}'` != 0) then
-    if ($LOCAL != 1) then
-      echo "$PDBID :"                                           >> $CHIRALS
-      grep 'Unknown residue' $WORKDIR/chiron.log | cut -c 19-61 >> $CHIRALS
-    else
-      echo "COMMENT: Unknown chirality errors" >> $DEBUG
-      echo "PDB-REDO,$PDBID"                   >> $DEBUG
-    endif
-  endif
-
-  #Make a debug record if chiron failed
-  if (-e $WORKDIR/${PDBID}_0cyc.pdb) then
-    #Do nothing
-  else
-    mv $WORKDIR/${PDBID}_0cyc.old $WORKDIR/${PDBID}_0cyc.pdb
-    echo "COMMENT: CHIRON: general error" >> $DEBUG
-    echo "PDB-REDO,$PDBID"                >> $DEBUG
-  endif
-else
-  set CHIFIX = 0
-endif
-
-#############################################  Fix the backbone if needed  ###############################################
-
-
-if ($GOT_PROT == 'T' && $DOFIXDMC == 1) then
-  #Report
-  echo " " | tee -a $LOG
-  echo " " | tee -a $LOG
-  echo "****** Backbone correction ******" | tee -a $LOG
-  echo "-Running fixDMC" | tee -a $LOG
-  
-  #Add OXT only when the sequence is trusted
-  if ($TRUSTSEQ == 1) then
-    set OXTADD = '-noaddoxt'
-    echo " o The sequence is untrusted, no OXT atoms can be added" | tee -a $LOG
-  endif
-
-  #Run fixDMC
-  cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.fixDMC.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-  
-  $TOOLS/fixDMC -v \
-  -pdb $WORKDIR/${PDBID}_0cyc.pdb \
-  -output-name $PDBID \
-  -tools $TOOLS \
-  $OXTADD \
-  -fasta $WORKDIR/$PDBID.fasta >& $WORKDIR/fixDMC.log 
-
-  #Report
-  set NATMADD = `grep -A 2 'Total number backbone atoms added:' $WORKDIR/fixDMC.log |  awk 'BEGIN {SUM = 0}{SUM = SUM+$6} END {print SUM}'` 
-  echo " o FixDMC added $NATMADD missing backbone atoms" | tee -a $LOG
-
-  if (-e $WORKDIR/${PDBID}_fixDMC.pdb) then 
-    mv $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_0cyc.old
-    mv $WORKDIR/${PDBID}_fixDMC.pdb $WORKDIR/${PDBID}_0cyc.pdb
-    mv $WORKDIR/${PDBID}.fasta.new $WORKDIR/${PDBID}.fasta >& /dev/null
-  else
-    echo " o FixDMC failed" | tee -a $LOG
-    echo "COMMENT: CHIRON: general error" >> $DEBUG
-    echo "PDB-REDO,$PDBID"                >> $DEBUG
-  endif
-endif  
-  
-
-###############################################  Set up occupancy fixing  ################################################
-#Set counter
-set OCCREF = 0
-
-#Set up occupancy refinement if it is not surpressed
-if ($DOOCC == 1) then
-  #Create file with hetero compounds with more than two occupancies if needed
-  if (`grep -E '^HETATM'+'.{10} ' $WORKDIR/${PDBID}_0cyc.pdb |  grep -v MSE | cut -c 22-27,56-60 | sort -u | cut -c 1-6 | uniq -c | awk '{if ($1 > 2) {$1 = ""; print substr($0,2,6)}}' | wc -l` != 0) then
-    #Grep the hetero compounds, but leave out MSE (seleno-methionine), then cut out the chains, residue numbers and
-    #occupancies and sort. This will leave only the unique occupancies per residue. The chains and residue numbers are
-    #cut out and for each residue the count is given. If this count is > 2, the chain and residue number is printed to
-    # a file.
-    grep -E '^HETATM'+'.{10} ' $WORKDIR/${PDBID}_0cyc.pdb | grep -v MSE | cut -c 22-27,56-60 | sort -u | cut -c 1-6 | uniq -c | awk '{if ($1 > 2) {print substr($0,length($0)-5, length($0))}}' > $WORKDIR/occupancy.lst
-
-  endif
-
-  #Find hetero compounds with at least one atom with occupancy 0.01
-  foreach RES ("`grep -E '^HETATM'+'.{10} ' $WORKDIR/${PDBID}_0cyc.pdb | grep -v MSE | cut -c 22-27,56-60 | grep ' 0.01' | cut -c 1-6 | sort -u`")
-    echo "$RES" >> $WORKDIR/occupancy.lst
-  end
-
-  #Filter the residue list and write the Refmac command file
-  if (-e $WORKDIR/occupancy.lst) then
-    foreach RES ("`sort -u $WORKDIR/occupancy.lst`")
-      @ OCCREF = ($OCCREF + 1)
-      set CHNID = `echo $RES | cut -c 1-1`
-      set RESN  = `echo $RES | cut -c 2-6`
-      #Skip cases where the residue has an insertion code (i.e. $RESN has non-numeric characters)
-      if (`echo $RESN | awk '{if ($0 ~ /^[0-9]+$/) {print "1"} else {print "0"}}'` == 1 ) then
-        echo "occupancy group id $OCCREF chain $CHNID residue $RESN" >> $WORKDIR/occupancy_cmd.refmac
-      else
-        @ OCCREF = ($OCCREF - 1)
-      endif
-    end
-  endif
-
-  #Is occupancy refinement needed?
-  if (-e $WORKDIR/occupancy_cmd.refmac) then
-
-    #Append refinement command
-    echo "occupancy refine" >> $WORKDIR/occupancy_cmd.refmac
-
-    #Make Refmac use command file
-    set OCCCMD = "@$WORKDIR/occupancy_cmd.refmac"
-  endif
-endif
-
+echo " " | tee -a $LOG
 
 ############################################### Resolution-based settings ################################################
 #Label to come back to after updating the resolution
@@ -4587,6 +4237,265 @@ endif
 #Use the Wilson B-factor unless it is negative or the resolution is lower than 4.00A; maximise at 50A^2.
 set BSET  = `echo $URESO $BWILS $BAVER | awk '{if ($1 > 3.99 || $2 < 0) {BSET = 0.5*$3} else {BSET = 0.5*$2}; if (BSET > 50) {BSET = 50.00}; if (BSET < 10) {BSET = 10.00}; printf ("%.2f\n", BSET)}'`
 set TBCMD = "bfac set $BSET"
+
+
+############################################## Can we use a FoldIt model? ################################################
+
+#Only run in databank mode and only once
+if ($LOCAL == 0 && ! -e $WORKDIR/${PDBID}_FoIt.pdb) then
+  #Check for a FoldIt model
+  cp /zata/projects/foldit/solutions/${PDBID}*.pdb $WORKDIR/${PDBID}_FoIt.pdb >& /dev/null
+  cp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_Orig.pdb
+  
+  if (-e $WORKDIR/${PDBID}_FoIt.pdb) then
+  
+    #Test the refinement performance of original and FoldIt model
+    echo " " | tee -a $LOG
+    echo "****** PDB versus FoldIt model testing ******" | tee -a $LOG
+    echo "-A FoldIt model was found, the best input model will be selected" | tee -a $LOG
+    
+    #Run refmac with different TLS group configurations
+    foreach INPUT (FoIt Orig)
+     
+      #Return label for job launching
+foldit_testing:
+
+      #Only launch new jobs when the number of cores is not exceeded
+      #Strangely direct line counting on the jobs output doesn't work, so a temporary file is needed
+      jobs > $WORKDIR/jobs.log
+      if (`cat $WORKDIR/jobs.log | wc -l` < $NPROC) then
+
+        #Run refmac
+        refmacat \
+        XYZIN  $WORKDIR/${PDBID}_$INPUT.pdb \
+        XYZOUT $WORKDIR/${PDBID}_input$INPUT.pdb \
+        HKLIN  $WORKDIR/$PDBID.mtz \
+        HKLOUT $WORKDIR/${PDBID}_input$INPUT.mtz \
+        $LIBLIN \
+        $TLSLIN \
+        $SCATLIN \
+<<eof >& $WORKDIR/${PDBID}_input$INPUT.log &
+          $SCATTERCMD
+          make check NONE
+          make hydrogen $HYDROGEN hout NO peptide NO cispeptide YES -
+            ssbridge $SSBOND $RSYMM $SUGAR $CONNECTIVITY link NO
+          make newligand continue
+          refi type REST resi MLKF meth CGMAT bref ISOT
+          $REFIRES
+          $TLSCMD
+          tlsd waters exclude
+          ncyc 20
+          scal type $SOLVENT $SCALING
+          solvent YES
+          $MASKPAR
+          $LOWMEM
+          weight $WGTSIG AUTO 2.50
+          monitor MEDIUM -
+            torsion 10.0 distance 10.0 angle 10.0 plane 10.0 chiral 10.0 -
+            bfactor 10.0 bsphere  10.0 rbond 10.0 ncsr  10.0
+          $NCSTYPE
+          $NCSALIGN
+          $NCSNEIGH
+          $NCSSTRICT
+          $TWIN
+          blim 2.0 999.0
+          labin  FP=FP SIGFP=SIGFP FREE=FREE $PHASES $ANOMCOEF
+          $ANOMCMD
+          pdbout copy expdta
+          pdbout copy remarks 200 280 350
+          NOHARVEST
+          $HOMOLWGTCMD
+          $HOMOLCMD
+          $HBONDWGTCMD
+          HBONDCMD
+          kill $TOOLS/pdb_redo.refmac
+          END
+eof
+      else
+        #Wait a bit to start again
+        sleep 10
+        goto foldit_testing
+      endif
+    end
+
+    #Wait for the jobs to finish
+    wait
+    
+    #Report
+    set TFREE = `tail -n $LOGSTEP $WORKDIR/${PDBID}_inputOrig.log | head -n 1 | awk '{print $3}'`
+    echo " o Tested refinement with the PDB model as input    (R-free = $TFREE)" | tee -a $LOG
+    set TFREE = `tail -n $LOGSTEP $WORKDIR/${PDBID}_inputFoIt.log | head -n 1 | awk '{print $3}'`
+    echo " o Tested refinement with the FoldIt model as input (R-free = $TFREE)" | tee -a $LOG
+    
+    #Analyse the results 
+    if ($GOTR == 0) then
+      echo "$RCAL $RFCALUNB" > $WORKDIR/${PDBID}.itest  #Use recalculated R and expected R-free as benchmarks
+    else
+      echo "$RCAL $RFCAL" > $WORKDIR/${PDBID}.itest  #Use R and R-free obtained from the recalculation as benchmarks
+    endif
+    foreach INPUT (FoIt Orig)
+      if (-e $WORKDIR/${PDBID}_input$INPUT.pdb) then
+        set LINE = `tail -n $LOGSTEP $WORKDIR/${PDBID}_input$INPUT.log | head -n 1`
+        echo "$INPUT $LINE" >> $WORKDIR/${PDBID}.itest
+      else
+        echo " o $WORKDIR/${PDBID}_input$INPUT.pdb was missing." | tee -a $LOG
+      endif
+    end
+
+    
+    #Pick the best input model. If no weight is found 'none' is returned and the re-refinement runs with default settings.
+    echo "-Picking the input model" | tee -a $LOG
+    set BINPUT = `$TOOLS/picker -s -i -f $WORKDIR/${PDBID}.itest $CNTSTCNT $RFRRAT $SRFRRAT $RMSZB $RMSZA`
+    if ($BINPUT == "FoIt") then 
+      #The FoldIt model worked better
+      echo " o The FoldIt input model works best" | tee -a $LOG
+      cp $WORKDIR/${PDBID}_FoIt.pdb $WORKDIR/${PDBID}_0cyc.pdb
+      
+      #Annotate the versions data
+      cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.data.foldit_used |= true'        $WORKDIR/versions.json.bak > $WORKDIR/versions.json
+      cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.data.coordinates_edited |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
+    else
+      echo " o The PDB input model works best" | tee -a $LOG
+    endif
+  endif  
+endif
+
+############################################ Fix atom chiralities if needed ##############################################
+
+#Count the chirality problems
+set CHIRERR = `grep -a -A 100 "Chiral volume deviations from the" $WORKDIR/${PDBID}_0cyc.log | grep -E "^.{19}mod" | wc -l`
+
+#Are fixes needed?
+if ($CHIRERR != 0) then
+
+  #Report
+  echo " " | tee -a $LOG
+  echo " " | tee -a $LOG
+  echo "****** Chirality validation ******" | tee -a $LOG
+  echo "-Found $CHIRERR chirality problems" | tee -a $LOG
+  echo " o Running chiron"   | tee -a $LOG
+
+  #Do the fixes and report
+  mv $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_0cyc.old
+
+  #PROGRAM: chiron
+  cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.chiron.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
+  $TOOLS/chiron -v $TOOLS/pdb_redo.dat $WORKDIR/${PDBID}_0cyc.log $WORKDIR/${PDBID}_0cyc.old $WORKDIR/${PDBID}_0cyc.pdb > $WORKDIR/chiron.log
+  set CHIFIX = `grep "ters fixed" $WORKDIR/chiron.log | awk '{print $5}'`
+  echo "   * `grep 'tested' $WORKDIR/chiron.log`"         | tee -a $LOG
+  echo "   * `grep 'ters fixed' $WORKDIR/chiron.log`"     | tee -a $LOG
+  echo "   * `grep 'not fixed' $WORKDIR/chiron.log`"      | tee -a $LOG
+  echo "   * `grep 'Unknown chiral' $WORKDIR/chiron.log`" | tee -a $LOG
+
+  #Make a debug record for unfixable problems
+  if (`grep -c Unknown $WORKDIR/chiron.log` != 0 && `grep Unknown $WORKDIR/chiron.log | awk '{print $5}'` != 0) then
+    if ($LOCAL != 1) then
+      echo "$PDBID :"                                           >> $CHIRALS
+      grep 'Unknown residue' $WORKDIR/chiron.log | cut -c 19-61 >> $CHIRALS
+    else
+      echo "COMMENT: Unknown chirality errors" >> $DEBUG
+      echo "PDB-REDO,$PDBID"                   >> $DEBUG
+    endif
+  endif
+
+  #Make a debug record if chiron failed
+  if (-e $WORKDIR/${PDBID}_0cyc.pdb) then
+    #Do nothing
+  else
+    mv $WORKDIR/${PDBID}_0cyc.old $WORKDIR/${PDBID}_0cyc.pdb
+    echo "COMMENT: CHIRON: general error" >> $DEBUG
+    echo "PDB-REDO,$PDBID"                >> $DEBUG
+  endif
+else
+  set CHIFIX = 0
+endif
+
+#############################################  Fix the backbone if needed  ###############################################
+
+if ($GOT_PROT == 'T' && $DOFIXDMC == 1) then
+  #Report
+  echo " " | tee -a $LOG
+  echo " " | tee -a $LOG
+  echo "****** Backbone correction ******" | tee -a $LOG
+  echo "-Running fixDMC" | tee -a $LOG
+  
+  #Add OXT only when the sequence is trusted
+  if ($TRUSTSEQ == 1) then
+    set OXTADD = '-noaddoxt'
+    echo " o The sequence is untrusted, no OXT atoms can be added" | tee -a $LOG
+  endif
+
+  #Run fixDMC
+  cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.fixDMC.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
+  
+  $TOOLS/fixDMC -v \
+  -pdb $WORKDIR/${PDBID}_0cyc.pdb \
+  -output-name $PDBID \
+  -tools $TOOLS \
+  $OXTADD \
+  -fasta $WORKDIR/$PDBID.fasta >& $WORKDIR/fixDMC.log 
+
+  #Report
+  set NATMADD = `grep -A 2 'Total number backbone atoms added:' $WORKDIR/fixDMC.log |  awk 'BEGIN {SUM = 0}{SUM = SUM+$6} END {print SUM}'` 
+  echo " o FixDMC added $NATMADD missing backbone atoms" | tee -a $LOG
+
+  if (-e $WORKDIR/${PDBID}_fixDMC.pdb) then 
+    mv $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_0cyc.old
+    mv $WORKDIR/${PDBID}_fixDMC.pdb $WORKDIR/${PDBID}_0cyc.pdb
+    mv $WORKDIR/${PDBID}.fasta.new $WORKDIR/${PDBID}.fasta >& /dev/null
+  else
+    echo " o FixDMC failed" | tee -a $LOG
+    echo "COMMENT: CHIRON: general error" >> $DEBUG
+    echo "PDB-REDO,$PDBID"                >> $DEBUG
+  endif
+endif  
+
+###############################################  Set up occupancy fixing  ################################################
+#Set counter
+set OCCREF = 0
+
+#Set up occupancy refinement if it is not surpressed
+if ($DOOCC == 1) then
+  #Create file with hetero compounds with more than two occupancies if needed
+  if (`grep -E '^HETATM'+'.{10} ' $WORKDIR/${PDBID}_0cyc.pdb |  grep -v MSE | cut -c 22-27,56-60 | sort -u | cut -c 1-6 | uniq -c | awk '{if ($1 > 2) {$1 = ""; print substr($0,2,6)}}' | wc -l` != 0) then
+    #Grep the hetero compounds, but leave out MSE (seleno-methionine), then cut out the chains, residue numbers and
+    #occupancies and sort. This will leave only the unique occupancies per residue. The chains and residue numbers are
+    #cut out and for each residue the count is given. If this count is > 2, the chain and residue number is printed to
+    # a file.
+    grep -E '^HETATM'+'.{10} ' $WORKDIR/${PDBID}_0cyc.pdb | grep -v MSE | cut -c 22-27,56-60 | sort -u | cut -c 1-6 | uniq -c | awk '{if ($1 > 2) {print substr($0,length($0)-5, length($0))}}' > $WORKDIR/occupancy.lst
+
+  endif
+
+  #Find hetero compounds with at least one atom with occupancy 0.01
+  foreach RES ("`grep -E '^HETATM'+'.{10} ' $WORKDIR/${PDBID}_0cyc.pdb | grep -v MSE | cut -c 22-27,56-60 | grep ' 0.01' | cut -c 1-6 | sort -u`")
+    echo "$RES" >> $WORKDIR/occupancy.lst
+  end
+
+  #Filter the residue list and write the Refmac command file
+  if (-e $WORKDIR/occupancy.lst) then
+    foreach RES ("`sort -u $WORKDIR/occupancy.lst`")
+      @ OCCREF = ($OCCREF + 1)
+      set CHNID = `echo $RES | cut -c 1-1`
+      set RESN  = `echo $RES | cut -c 2-6`
+      #Skip cases where the residue has an insertion code (i.e. $RESN has non-numeric characters)
+      if (`echo $RESN | awk '{if ($0 ~ /^[0-9]+$/) {print "1"} else {print "0"}}'` == 1 ) then
+        echo "occupancy group id $OCCREF chain $CHNID residue $RESN" >> $WORKDIR/occupancy_cmd.refmac
+      else
+        @ OCCREF = ($OCCREF - 1)
+      endif
+    end
+  endif
+
+  #Is occupancy refinement needed?
+  if (-e $WORKDIR/occupancy_cmd.refmac) then
+
+    #Append refinement command
+    echo "occupancy refine" >> $WORKDIR/occupancy_cmd.refmac
+
+    #Make Refmac use command file
+    set OCCCMD = "@$WORKDIR/occupancy_cmd.refmac"
+  endif
+endif
 
 
 ############################################# Generate external restraints (only once) ##############################################
@@ -9815,7 +9724,6 @@ else
   set OPIAW = `grep 'Worse OPIA'   $WORKDIR/mapval_eds_compare.txt | awk '{print $3}'`
 
   #Give the summary
-  echo " " | tee -a $LOG
   echo '                       Better Worse'  | tee -a $LOG
   echo "Real-space CC        : $RSCCB $RSCCW" | tee -a $LOG
   echo "Real-space R-factor  : $RSRB $RSRW"   | tee -a $LOG
@@ -9823,6 +9731,43 @@ else
   echo "OPIA density coverage: $OPIAB $OPIAW" | tee -a $LOG
   echo " " | tee -a $LOG
 
+endif
+
+################################################    Radiation damange    #################################################
+
+#Set fallback values
+set BNET  = 'NA'
+set PBNET = 'NA'
+
+#Only works with refined individual B-factors and proteins
+if ($BREFTYPE != "OVER" && $GOT_PROT == 'T') then
+  cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.rabdam.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
+  
+  echo " " | tee -a $LOG
+  echo "-Analysing radiation damage" | tee -a $LOG
+  
+  #Create and run RABDAM script
+  echo "$WORKDIR/${PDBID}_final_tot.pdb, outfiles=bnet, filter=False, batchContinue=True, temperature=cryo" > $WORKDIR/rabdam.cmd
+  rabdam -i $WORKDIR/rabdam.cmd > $WORKDIR/rabdam.log
+
+  #Get Bnet values and report
+  set BNET  = `grep 'Bnet =' $WORKDIR/rabdam.log | cut -d '=' -f 2`
+  set PBNET = `grep 'Bnet_percentile =' $WORKDIR/rabdam.log | awk '{printf "%.0f", $3}'`
+  
+  echo " "  | tee -a $LOG
+  echo "Bnet radiation damage: $BNET"  | tee -a $LOG
+  echo "Bnet percentile rank : $PBNET" | tee -a $LOG
+  
+  #Warn if it is a local user
+  if ($LOCAL == 0 && $PBNET > 94) then
+    #The warning
+    echo " " | tee -a $LOG
+    echo "WARNING!" | tee -a $LOG
+    echo "--------" | tee -a $LOG
+    echo "Very strong radiation damage detected!" | tee -a $LOG
+    echo "Consider reprocessing your reflection data." | tee -a $LOG
+  endif
+  echo " " | tee -a $LOG
 endif
 
 ################################################    Ligand validation    #################################################
@@ -9849,7 +9794,7 @@ if (`grep -c "_ligand.asym_id" $WORKDIR/$PDBID.extracted` > 0) then
 #      set PDBLIG = `echo "$CHID $RESNUM" | awk '{printf "%s%4d\n", $1, $2}' | sed 's/ /_/g'`
       
       #Only run for existing ligands
-      if (`echo "SELECT auth_comp_id FROM atom_site WHERE auth_asym_id = '$CHID' AND auth_seq_id = '$RESNUM';" | $TOOLS/mmCQL $WORKDIR/${PDBID}_prepped.cif | wc -l` > 1) then
+      if (`echo "SELECT auth_comp_id FROM atom_site WHERE auth_asym_id = '$CHID' AND auth_seq_id = '$RESNUM';" | $TOOLS/mmCQL $WORKDIR/${PDBID}_c2f.cif | wc -l` > 1) then
 
         #Return label for job launching
 ligvalrunning:
@@ -10417,7 +10362,7 @@ echo -n "$SOLVENT $VDWPROBE $IONPROBE $RSHRINK $DOTLS $NTLS $OPTTLSG $ORITLS $LE
 echo -n "$WAVELENGTH $ISTWIN $SOLVD $EXPTYP $COMPLETED $NOPDB $NOSF $USIGMA $ZCALERR $TIME $RESOTYPE $FALSETWIN $TOZRAMA $TFZRAMA $TOCHI12 $TFCHI12 $TOZPAK2 $TFZPAK2 $TOWBMPS $TFWBMPS $TOHBSAT $TFHBSAT $OHRMSZ $NHRMSZ $FHRMSZ " >> $WORKDIR/data.txt
 echo -n "$TOZPAK1 $TFZPAK1 $NLOOPS $NMETALREST2 $OSZRAMA $NSZRAMA $FSZRAMA $OSCHI12 $NSCHI12 $FSCHI12 $SRFRRAT $ZRFRRATCAL $ZRFRRATTLS $ZRFRRATFIN $GOT_PROT $GOT_NUC " >> $WORKDIR/data.txt
 echo -n "$NNUCLEICREST $OBPHBRMSZ $NBPHBRMSZ $FBPHBRMSZ $OSHEAR $NSHEAR $FSHEAR $OSTRETCH $NSTRETCH $FSTRETCH $OBUCKLE $NBUCKLE $FBUCKLE $OPROPEL $NPROPEL $FPROPEL $OCONFAL $NCONFAL $FCONFAL $TOCONFAL $TNCONFAL $TFCONFAL " >> $WORKDIR/data.txt
-echo    "$ODNRMSD $NDNRMSD $FDNRMSD $OBPGRMSZ $NBPGRMSZ $FBPGRMSZ $TOBPGRMSZ $TFBPGRMSZ $FSCWCAL $FSCFCAL $FSCWTLS $FSCFTLS $FSCWFIN $FSCFFIN $GOT_CARB" >> $WORKDIR/data.txt
+echo    "$ODNRMSD $NDNRMSD $FDNRMSD $OBPGRMSZ $NBPGRMSZ $FBPGRMSZ $TOBPGRMSZ $TFBPGRMSZ $FSCWCAL $FSCFCAL $FSCWTLS $FSCFTLS $FSCWFIN $FSCFFIN $GOT_CARB $BNET $PBNET" >> $WORKDIR/data.txt
 cp $WORKDIR/data.txt $TOUTPUT/
 if ($?COMMENT) then
   python3 $TOOLS/txt2json.py -i $WORKDIR/data.txt -o $TOUTPUT/tdata.json -c "$COMMENT"

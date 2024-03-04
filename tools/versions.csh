@@ -58,7 +58,7 @@ set VERSION = `$TOOLS/cif2cif | head -n 1 | awk '{print $4}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"cif2cif":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
 #  9) extractor, always
-set VERSION = `$TOOLS/extractor | head -n 1 | awk '{print $4}'`
+set VERSION = `$TOOLS/extractor --version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"extractor":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
 # 10) cif2mtz, always
@@ -262,9 +262,9 @@ cp $VFILE $VFILE.tmp && jq '.software +={"pdb2cif":{ "version":$version, "used":
 set VERSION = `$TOOLS/carbonanza --version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"carbonanza":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 57) pdb2fasta
-set VERSION = `$TOOLS/pdb2fasta | head -n 1 | awk '{print $4}'`
-cp $VFILE $VFILE.tmp && jq '.software +={"pdb2fasta":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
+# 57) cif2fasta
+set VERSION = `$TOOLS/cif2fasta --version | awk '{print $3}'`
+cp $VFILE $VFILE.tmp && jq '.software +={"cif2fasta":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
 # 58) blastp 
 if ($?BLASTP) then
@@ -307,6 +307,11 @@ cp $VFILE $VFILE.tmp && jq '.software +={"dRSCC":{ "version":$version, "used":tr
 # 68) rama-angles
 set VERSION = `$TOOLS/rama-angles --version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"rama-angles":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
+
+# 69) Rabdam
+set VERSION = `rabdam --version | awk '{print $3}'`
+#set VERSION = "2.0"
+cp $VFILE $VFILE.tmp && jq '.software +={"rabdam":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
 #Cleanup
 rm versions.log
