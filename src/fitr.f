@@ -1,6 +1,6 @@
       PROGRAM FITR
 C=======================================================================
-C  Version 1.01 2022-04-04
+C  Version 1.02 2024-04-11
 C  Checks to see wheter one set of R-factors fits the other
 C
 C  Usage: fitr R1 Rfree1 R2 Rfree2 (cut-off)
@@ -42,6 +42,7 @@ C  Version 1.00:
 C  - Added the help function.
 C  Version 1.01:
 C  - Increases the tollerance for lower than expected R-factor
+C  - Better handling of corrupt input.
 C=======================================================================
       IMPLICIT NONE
 C-----Declare the basic variables and parameters

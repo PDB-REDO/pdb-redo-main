@@ -139,13 +139,37 @@ endif
 # - x3dna-dssr     Needed for nucleic acid restraints and validation.
 #
 ####################################################### Change log #######################################################
-set VERSION = '8.06' #PDB-REDO version
+set VERSION = '8.08' #PDB-REDO version
 
+# Version 8.08:
+# - Reactivated molecular replacemne with Molrep to deal with a series of legacy PDB entries. 
+# - The cut-off for doing MR was lowered to 0.46.
+# - Fixed a reporting bug for the c-axis of the unit cell (credit to Karthikeyan Subramanian).
+# - Bugfix for dealing with strict NCS.
+# - Swapped the order of 0-cycle calculation with or without TLS to fix error with TLS ranges.
+# - Fix for logfile reading of the is rigid-body refinement for large models.
+# - Added fix so that pdb-redo stops when the first 0-cycle run stops.
+# - Added a fix for cases when the free Fourrier Shell Correlation is not reported.
+#
+# Version 8.07:
+# - Fixed occupancy refinement to exclude residues that have partial alternates.
+# - Bugfix in the way cif-merge is run.
+# - Added a contingency for DSSP failing in the final model annotation.
+# - Relucatntly added some logic to deal with different space group notations in coordinate and reflection files.
+# - Fixed logfile parsing issue in case of TLS tensor re-evaluation.
+# - Added a catch for trying to run RABDAM on proteins without aspartate or glutamate. 
+# - Fix in LOGSTEP when the hybrid-36 warning is given by Refmacat and there is a TLS problem.
+# - Added a contingency for the input model having more than 200 TLS groups because this breaks Refmacat.
+# - Bugfix for twin detection with Phaser.
+# - Bugfix for creating the ????_refin.pdb file in case TLS is not used.
+# - Added time limits for YASARA's ligand validation. 
+#
 # Version 8.06:
 # - Added an option that tests whether an alternative FoldIt model works better in refinement.
 # - For the FoldIt implementation resolution-based settings are configured earlier in the pipeline.
 # - The FoldIt model selection is only done before the paired refinement. If a new resolution is set the FoldIt test is 
 #   not repeated.  
+# - Extensive rewiring to make sure the baseline validation scores always come from the PDB model.
 # - Replaced pdb2fasta by cif2fasta.
 # - User input is now explicitly tested for having the sequence in either the input model or a user provided fasta file.
 # - Passing user's restraint files to Refmacat in rigid-body refinement as Gemmi needs them. 
@@ -165,7 +189,7 @@ set VERSION = '8.06' #PDB-REDO version
 # - Updated cif2cif to deal with rediculous sigI values (see 8ebi).
 # - Bugfix for cases where the second platonyzer run does not generate any restraints.
 # - Bugfix for restraints checking while updating the solvent mask parameters in case of a new resolution cut-off.
-# - Catch for cases when hybrid64 files are written.
+# - Catch for cases when hybrid-36 files are written.
 #
 # Version 8.03:
 # - Started using Refmacat.
@@ -686,9 +710,9 @@ if ($1 == "--local") then
 endif
 
 #Write out header
-echo " __   __   __     __   ___  __   __    _     __   _ " | tee -a $LOG
-echo "|__) |  \ |__) _ |__) |__  |  \ /  \  (_)   / /\ |_ " | tee -a $LOG
-echo "|    |__/ |__)   |  \ |___ |__/ \__/  (_) o \/_/ |_)" | tee -a $LOG
+echo " __   __   __     __   ___  __   __    _     __  __ " | tee -a $LOG
+echo "|__) |  \ |__) _ |__) |__  |  \ /  \  (_)   / /\  / " | tee -a $LOG
+echo "|    |__/ |__)   |  \ |___ |__/ \__/  (_) o \/_/ /  " | tee -a $LOG
 echo " "
 
 #Font for the header
@@ -1712,7 +1736,9 @@ set RCAXIS = `$TOOLS/cif-grep -i _cell.length_c . $WORKDIR/r${PDBID}sf.ent | hea
 set RSPACE = `$TOOLS/cif-grep -i _symmetry.space_group_name_H-M . $WORKDIR/r${PDBID}sf.ent | head -n 1 | sed "s/P 21 21 2 A/P 21 21 2 (a)/g" | sed "s/P 1- /P -1/g"`
 
 #Check whether the space groups match
-if ("$MSPACE" != "$RSPACE") then
+if ("$MSPACE" == "$RSPACE" || ("$MSPACE" == 'C 1 2 1' && "$RSPACE" == 'C 2') || ("$MSPACE" == 'P 1 21 1' && "$RSPACE" == 'P 21')|| ("$MSPACE" == 'I 1 2 1' && "$RSPACE" == 'I 2') || ("$MSPACE" == 'I 1 21 1' && "$RSPACE" == 'I 21') || ("$MSPACE" == 'P 1 2 1' && "$RSPACE" == 'P 2') || ("$MSPACE" == 'B 1 1 2' && "$RSPACE" == 'B 2')) then
+  #Good news. Do nothing
+else  
   #This needs to be solved first
   if ($LOCAL == 1) then
     echo " " | tee -a $LOG
@@ -2165,7 +2191,12 @@ endif
 
 #Are there any TLS groups from extractor?
 if (! -z $WORKDIR/$PDBID.tls) then
-  echo " o TLS groups extracted: `grep -c 'TLS' $WORKDIR/$PDBID.tls`" | tee -a $LOG
+  set NTLSIN = `grep -c 'TLS' $WORKDIR/$PDBID.tls`
+  echo " o TLS groups extracted: $NTLSIN" | tee -a $LOG
+  if ($NTLSIN > 200) then
+    echo "   * Unfortunately, these are too many for Refmacat. They will not be used." | tee -a $LOG
+    rm $WORKDIR/$PDBID.tls
+  endif
 else
   echo " o TLS groups extracted: 0" | tee -a $LOG
   rm $WORKDIR/$PDBID.tls
@@ -2199,15 +2230,20 @@ endif
 #Cell dimensions
 set AAXIS      = `$TOOLS/cif-grep -i _cell.length_a . $WORKDIR/$PDBID.extracted`
 set BAXIS      = `$TOOLS/cif-grep -i _cell.length_b . $WORKDIR/$PDBID.extracted`
-set CAXIS      = `$TOOLS/cif-grep -i _cell.length_b . $WORKDIR/$PDBID.extracted`
+set CAXIS      = `$TOOLS/cif-grep -i _cell.length_c . $WORKDIR/$PDBID.extracted`
 set ALPHA      = `$TOOLS/cif-grep -i _cell.angle_alpha . $WORKDIR/$PDBID.extracted`
 set BETA       = `$TOOLS/cif-grep -i _cell.angle_beta  . $WORKDIR/$PDBID.extracted`
 set GAMMA      = `$TOOLS/cif-grep -i _cell.angle_gamma . $WORKDIR/$PDBID.extracted`
 set SPACEGROUP = `$TOOLS/cif-grep -i _extracted_info.spacegroup . $WORKDIR/$PDBID.extracted | tr -d "'"`
 
 #Data properties
-set RESOLUTION = `$TOOLS/cif-grep -i _extracted_info.resolution . $WORKDIR/$PDBID.extracted | awk '{printf ("%.2f\n", $1)}'`
 set DATARESH   = `$TOOLS/cif-grep -i _extracted_info.resolution_high . $WORKDIR/$PDBID.extracted | awk '{printf ("%.2f\n", $1)}'`
+set RESOLUTION = `$TOOLS/cif-grep -i _extracted_info.resolution . $WORKDIR/$PDBID.extracted`
+if ($RESOLUTION == '?' || $RESOLUTION == '') then
+  set RESOLUTION = $DATARESH
+else
+  set RESOLUTION = `echo $RESOLUTION | awk '{printf ("%.2f\n", $1)}'`
+endif  
 set DATARESL   = `$TOOLS/cif-grep -i _extracted_info.resolution_low . $WORKDIR/$PDBID.extracted | awk '{printf ("%.2f\n", $1)}'`
 set REFCNT     = `$TOOLS/cif-grep -i _extracted_info.reflection_count . $WORKDIR/$PDBID.extracted`
 set TSTCNT     = `$TOOLS/cif-grep -i _extracted_info.testset_count . $WORKDIR/$PDBID.extracted`
@@ -2248,7 +2284,10 @@ if ($RSHRINK == '' || $RSHRINK == '?') then
 endif  
 
 #Administrative
-set PROG       = `$TOOLS/cif-grep -i _extracted_info.refinement_program . $WORKDIR/$PDBID.extracted | tr ' ' '_'`
+set PROG       = `$TOOLS/cif-grep -i _extracted_info.refinement_program . $WORKDIR/$PDBID.extracted | tr ' ' '_' | tr '?' '_' | tr -d "'"`
+if ($PROG == "" || $PROG == ".") then
+  set PROG = "UNKNOWN"
+endif  
 set DYEAR      = `$TOOLS/cif-grep -i _pdbx_database_status.recvd_initial_deposition_date . $WORKDIR/${PDBID}_prepped.cif | cut -c 1-4`
 if ($DYEAR == "" || $DYEAR == ".") then
   set DYEAR = 2161
@@ -2305,7 +2344,7 @@ if ($STRICTNCS == 1) then
   #Count the number of MTRIX records
   set NMTRIX = `cif-grep -c -i _struct_ncs_oper.code generate $WORKDIR/${PDBID}_prepped.cif`
   #Add 1 for the identity matrix
-  @ NMTRIX = ($NMATRIX + 1)
+  @ NMTRIX = ($NMTRIX + 1)
   #Get the total
   set ATMCNT = `echo $NMTRIX $ATMCNT | awk '{print $1*$2}'`
 endif
@@ -2329,23 +2368,6 @@ if ($GOT_PROT == 'T') then
   #Run blast if cif2fasta was successful
   if (! -z $WORKDIR/${PDBID}_c2f.fa) then
     cp $WORKDIR/${PDBID}_c2f.fa $WORKDIR/${PDBID}.fasta
-    
-    if ($?BLASTP) then
-      echo "   * Running BLASTp against the PDB-REDO databank" | tee -a $LOG
-      cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.BLASTp.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-  
-      $BLASTP \
-      -evalue 0.001 \
-      -num_descriptions 9999 \
-      -num_alignments 9999 \
-      -query $WORKDIR/$PDBID.fasta \
-      -out $WORKDIR/$PDBID.blast \
-      -db $TOOLS/pdbredo_seqdb.txt >& $WORKDIR/blast.log
-    else
-      echo "   * BLASTp is missing or not configured properly" | tee -a $LOG
-      echo "   * Cannot generate homology-based restraints"    | tee -a $LOG
-      set DOHOMOLOGY = 0
-    endif
   else  
     echo "   * No protein sequence extracted. Not using homology restraints."| tee -a $LOG 
     set DOHOMOLOGY = 0
@@ -2436,7 +2458,7 @@ else if ($DYEAR < 1995 && $ISED == 1) then
 endif
 
 #Stop and give WHY_NOT comment if no R-factor can be extracted from the PDB header...
-if ($RFACT == 0.9990) then
+if ($RFACT == '' || $RFACT == '?') then
   # ... unless PDB-REDO is running in legacy mode or working on a local file
   echo " o Cannot extract R-factor from PDB header. Recalculated value will be used as refinement target." | tee -a $LOG
   set LEGACY = 1
@@ -2940,7 +2962,7 @@ eof
     set PHASTWIN = 0
   else
     #Check whether PHASER found twinning
-    if (`grep -c "Warning: Intensity moments suggest significant twinning" $WORKDIR/phaser.log` == 0 && `grep -c "Warning: Intensity moments suggest possibility of twinning" $WORKDIR/phaser.log` == 0) then
+    if (`grep -c "Warning: Intensity moments suggest significant twinning" $WORKDIR/phaser.log` == 0 && `grep -c "Warning: Intensity moments suggest possibility of twinning" $WORKDIR/phaser.log` == 0 && `grep -c "twinned is considered worth investigating" $WORKDIR/phaser.log` == 0) then
       #Phaser did not find twinning
       set PHASTWIN = 0
     else
@@ -3132,15 +3154,14 @@ previousredo:
 junkedtls:
 set ORITLS = 0
 set ISTLS  = 'notls'
-set TLSLIN =     #Do not use static TLS tensors unless...
-#.... a TLS exists...
+set TLSLIN =     #Do not use static TLS tensors at this point
+
 if (-e $WORKDIR/$PDBID.tls && $DOTLS == 1) then
   #...and has complete TLS tensors.
   if (`grep -c ORIGIN $WORKDIR/$PDBID.tls` != 0) then
     set ORITLS = 1
-    set ISTLS  = 'tls'
     set TLSLIN = `echo TLSIN $WORKDIR/$PDBID.tls` #Use static TLS-groups for better R/R-free calculation
-    echo -n "-Recalculating R-factors with original TLS tensors    " | tee -a $LOG
+    echo -n "-Recalculating R-factors without original TLS tensors " | tee -a $LOG
   else
     echo -n "-Running Refmac for 0 cycles "    | tee -a $LOG
   endif
@@ -3148,14 +3169,13 @@ else
   echo -n "-Running Refmac for 0 cycles " | tee -a $LOG
 endif
 
-#Run refmac for 0 cycles to check R-factors (with TLS). PROGRAM: REFMAC
+#Run refmac for 0 cycles to check R-factors. PROGRAM: REFMAC
 refmacat \
 XYZIN  $WORKDIR/${PDBID}_c2f.cif \
 XYZOUT $WORKDIR/${PDBID}_0cyc$ISTLS.pdb \
 HKLIN  $WORKDIR/$PDBID.mtz \
 HKLOUT $WORKDIR/${PDBID}_0cyc$ISTLS.mtz \
 $LIBLIN \
-$TLSLIN \
 $SCATLIN \
 <<eof >& $WORKDIR/${PDBID}_0cyc$ISTLS.log
   $SCATTERCMD
@@ -3165,7 +3185,6 @@ $SCATLIN \
   refi type REST resi MLKF meth CGMAT bref MIXE
   $REFIRES
   ncyc 0
-  tlsd waters exclude
   scal type $SOLVENT $SCALING
   solvent YES
   $MASKPAR
@@ -3187,17 +3206,7 @@ eof
 
 if ($status || `grep -c 'Error: Fatal error. Cannot continue' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0) then
   echo " " | tee -a $LOG
-  #Check whether there are too many TLS goups
-  if (`grep -c 'Too many tls groups. Maximum allowed is' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0) then
-    #Give error message
-    echo " o Input model had more TLS groups than Refmac can handle. They will be ignored." | tee -a $LOG
-    echo "COMMENT: too many TLS groups" >> $DEBUG
-    echo "PDB-REDO,$PDBID"              >> $DEBUG  
-    
-    #Recover by ignoring te original TLS model
-    mv $WORKDIR/$PDBID.tls $WORKDIR/$PDBID.notls
-    goto junkedtls
-  endif
+
   #Check to see if there is a problem with alternate residues
   if (`grep -c 'different residues have the same number' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0) then
     if ($LOCAL == 1) then
@@ -3330,9 +3339,9 @@ if ($status || `grep -c 'Error: Fatal error. Cannot continue' $WORKDIR/${PDBID}_
   endif
 endif
 
-#Check the value for LOGSTEP and RBLS (only once)
+#Check the value for LOGSTEP and RBLS (only once and only if the log file is complete)
 if ($GOTOLD == 0) then
-  if (`grep -a -c 'Rms ChirVolume' $WORKDIR/${PDBID}_0cyc$ISTLS.log` == 0) then
+  if (`grep -a -c 'Rms ChirVolume' $WORKDIR/${PDBID}_0cyc$ISTLS.log` == 0 && `grep -a -c 'using mmCIF metadata from' $WORKDIR/${PDBID}_0cyc$ISTLS.log` > 0) then
     @ LOGSTEP = ($LOGSTEP - 1)
     @ RBLS = ($LOGSTEP - 2)
   else
@@ -3340,21 +3349,39 @@ if ($GOTOLD == 0) then
   endif
 endif  
 
-#Check for hybrid64 warning
-
+#Check for hybrid-36 warning
 if (`grep -c 'Using hybrid-36. Header part may be inaccurate.' $WORKDIR/${PDBID}_0cyc$ISTLS.log` > 0) then
   @ LOGSTEP = ($LOGSTEP + 1)
+  @ RBLS = ($RBLS + 1)
 endif  
   
 #Get calculated R-factor
 set PRCAL1 = `tail -n $LOGSTEP $WORKDIR/${PDBID}_0cyc$ISTLS.log | head -n 1 | awk '{print $2}'`
 set TRFREE = `tail -n $LOGSTEP $WORKDIR/${PDBID}_0cyc$ISTLS.log | head -n 1 | awk '{print $3}'`
-echo "(R-free = $TRFREE)" | tee -a $LOG
 
-#Check R-factor without TLS tensors
+#Cheack whether value makes sense
+if (`echo $TRFREE | grep -c -E '[a-zA-Z]'` == 0) then
+  echo "(R-free = $TRFREE)" | tee -a $LOG
+else
+  #Something went wrong with Refmacat. Stop
+  echo " " | tee -a $LOG
+  echo " o Problem with refmac. Cannot continue." | tee -a $LOG
+  echo "COMMENT: refmac: error in initial R-free calculation" >> $WHYNOT
+  echo "PDB-REDO,$PDBID"                                      >> $WHYNOT
+
+  #Write out status files
+  if ($SERVER == 1) then
+    touch $STDIR/stoppingProcess.txt
+    touch $STDIR/processStopped.txt
+  endif
+  cd $BASE
+  exit(1)
+endif
+
+#Calculate with the TLS tensor
 if ($ORITLS == 1) then
-  echo -n "-Recalculating R-factors without original TLS tensors " | tee -a $LOG
-  set ISTLS = 'notls'
+  echo -n "-Recalculating R-factors with original TLS tensors    " | tee -a $LOG
+  set ISTLS = 'tls'
 
   #Rerun refmac for 0 cycles, again
   refmacat \
@@ -3363,6 +3390,7 @@ if ($ORITLS == 1) then
   HKLIN  $WORKDIR/$PDBID.mtz \
   HKLOUT $WORKDIR/${PDBID}_0cyc$ISTLS.mtz \
   $LIBLIN \
+  $TLSLIN \
   $SCATLIN \
 <<eof > $WORKDIR/${PDBID}_0cyc$ISTLS.log
     $SCATTERCMD
@@ -3404,18 +3432,32 @@ eof
     exit(1)
   endif
 
-  #Get calculated R-factor
-  set PRCAL2 = `tail -n $LOGSTEP $WORKDIR/${PDBID}_0cyc$ISTLS.log | head -n 1 | awk '{print $2}'`
-  set TRFREE = `tail -n $LOGSTEP $WORKDIR/${PDBID}_0cyc$ISTLS.log | head -n 1 | awk '{print $3}'`
-  echo "(R-free = $TRFREE)" | tee -a $LOG
+  #Check whether the refinement with TLS was succesful
+  if (`grep -c 'Ncyc    Rfact    Rfree     FOM' $WORKDIR/${PDBID}_0cyc$ISTLS.log` > 0) then
+    #Get calculated R-factor
+    set PRCAL2 = `tail -n $LOGSTEP $WORKDIR/${PDBID}_0cyc$ISTLS.log | head -n 1 | awk '{print $2}'`
+    set TRFREE = `tail -n $LOGSTEP $WORKDIR/${PDBID}_0cyc$ISTLS.log | head -n 1 | awk '{print $3}'`
+    echo "(R-free = $TRFREE)" | tee -a $LOG
 
-  #Which is better (i.e. gives lower R-factor), with or without TLS?
-  if (`echo $PRCAL1 $PRCAL2 | awk '{if ($1 - $2 < 0) {print "with"} else {print "without"}}'` == 'with') then
-    echo " o Recalculating the R-factor with TLS tensors gives the best result" | tee -a $LOG
-    set ISTLS = 'tls'
+    #Which is better (i.e. gives lower R-factor), with or without TLS?
+    if (`echo $PRCAL1 $PRCAL2 | awk '{if ($2 - $1 < 0) {print "with"} else {print "without"}}'` == 'with') then
+      echo " o Recalculating the R-factor with TLS tensors gives the best result" | tee -a $LOG
+      set ISTLS = 'tls'
+    else
+      echo " o Recalculating the R-factor without TLS tensors gives the best result" | tee -a $LOG
+      set TLSLIN =   #Do not use static TLS tensors
+      set ISTLS  = 'notls'
+    endif
   else
-    echo " o Recalculating the R-factor without TLS tensors gives the best result" | tee -a $LOG
-    set TLSLIN =   #Do not use static TLS tensors
+    #Give error message
+    echo " "
+    echo " o Calculation failed, original TLS model will be ignored" | tee -a $LOG
+    echo "COMMENT: problem with input TLS model" >> $DEBUG
+    echo "PDB-REDO,$PDBID"                       >> $DEBUG  
+    
+    #Recover by ignoring te original TLS model
+    mv $WORKDIR/$PDBID.tls $WORKDIR/$PDBID.notls
+    set ISTLS  = 'notls'
   endif
 endif
 
@@ -3851,14 +3893,14 @@ eof
 endif
 
 #Get the geometry
-set RMSZB = `tail -n $LOGSTEP $WORKDIR/${PDBID}_0cyc.log | head -n 1 | sed 's/\*\*\*\*\*\*/huge/g' | awk '{print $8}'`
-set RMSZA = `tail -n $LOGSTEP $WORKDIR/${PDBID}_0cyc.log | head -n 1 | sed 's/\*\*\*\*\*\*/huge/g' | awk '{print $10}'`
+set RMSZB = `tail -n $LOGSTEP $WORKDIR/${PDBID}_0cyc.log | head -n 1 | sed 's/\*\*\*\*\*\*/99.999/g' | awk '{print $8}'`
+set RMSZA = `tail -n $LOGSTEP $WORKDIR/${PDBID}_0cyc.log | head -n 1 | sed 's/\*\*\*\*\*\*/99.999/g' | awk '{print $10}'`
 #Store values for validation
 set OBRMSZ = $RMSZB
 set OARMSZ = $RMSZA
 
 #Do last ditch MR attempts if it is really bad
-if ($DIDMR == 0 && `$TOOLS/fitr $RFACT $RFREE $RCAL $RFCAL 0.10` == 0 && `echo $RFCAL | awk '{if ($1 > 0.500) {print 1} else {print 0}}'` == 1) then 
+if ($DIDMR == 0 && `$TOOLS/fitr $RFACT $RFREE $RCAL $RFCAL 0.10` == 0 && `echo $RFCAL | awk '{if ($1 > 0.46) {print 1} else {print 0}}'` == 1) then 
   #R-factors do not fit after several tries and are very high.
   echo " o Suspiciously high R-factors" | tee -a $LOG
   
@@ -3866,13 +3908,14 @@ if ($DIDMR == 0 && `$TOOLS/fitr $RFACT $RFREE $RCAL $RFCAL 0.10` == 0 && `echo $
   cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.molrep.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
   
   echo "   * Running MOLREP" | tee -a $LOG
+  $TOOLS/cif2pdb $WORKDIR/${PDBID}_c2f.cif $WORKDIR/${PDBID}_c2f.pdb >& $WORKDIR/molrep.log
   set DIDMR = 1
-  molrep -f $WORKDIR/$PDBID.mtz -m $WORKDIR/${PDBID}_prepped.pdb > $WORKDIR/molrep.log
+  molrep -f $WORKDIR/$PDBID.mtz -m $WORKDIR/${PDBID}_c2f.pdb >> $WORKDIR/molrep.log
   
   #Start over if there is usable output
   if (-e molrep.pdb) then 
     echo "   * Restarting with MOLREP output" | tee -a $LOG
-    cp molrep.pdb $WORKDIR/${PDBID}_prepped.pdb
+    $TOOLS/pdb2cif molrep.pdb $WORKDIR/${PDBID}_c2f.cif >>& $WORKDIR/molrep.log
     goto molrepped
   endif  
 endif  
@@ -3895,7 +3938,7 @@ else
     if ($INTENS != "-i" && `grep -c ' F ' $WORKDIR/${PDBID}c2c.log` > 0 &&  `grep -c ' I ' $WORKDIR/${PDBID}c2c.log` > 0) then
 
       #Go back and use intensities
-      echo "   * Retrying with reflection intensities intead of amplitudes"  | tee -a $LOG
+      echo "   * Retrying with reflection intensities instead of amplitudes"  | tee -a $LOG
       echo " " | tee -a $LOG
 
       #Create debug entry
@@ -3913,7 +3956,8 @@ else
         echo "   * Re-refinement aborted" | tee -a $LOG
       else
         #Work in legacy mode but skip rigid-body
-        zcat $WORKDIR/${PDBID}_0cyc.pdb.gz > $WORKDIR/${PDBID}_prepped.pdb
+        zcat $WORKDIR/${PDBID}_0cyc.pdb.gz > $WORKDIR/${PDBID}_previous.pdb
+        $TOOLS/pdb2cif $WORKDIR/${PDBID}_previous.pdb $WORKDIR/${PDBID}_prepped.cif
         echo "   * Trying previous PDB-REDO entry as starting point" | tee -a $LOG
         set GOTOLD = 1
         set LEGACY = 1
@@ -3938,8 +3982,13 @@ else
 endif
 
 # Get FSC values
-set FSCWCAL = `grep 'Average Fourier shell correlation' $WORKDIR/${PDBID}_0cyc.log | awk '{print $6}'`
-set FSCFCAL = `grep 'AverageFree Fourier shell correlation' $WORKDIR/${PDBID}_0cyc.log | awk '{print $5}'`
+set FSCWCAL = `grep 'Average Fourier shell correlation' $WORKDIR/${PDBID}_0cyc.log | tail -n 1| awk '{print $6}'`
+if (`grep -c 'AverageFree Fourier shell correlation' $WORKDIR/${PDBID}_0cyc.log` > 0) then 
+  set FSCFCAL = `grep 'AverageFree Fourier shell correlation' $WORKDIR/${PDBID}_0cyc.log | tail -n 1 | awk '{print $5}'`
+else
+  set FSCFCAL = 'NA'
+endif  
+
 
 # Get the rough atom count
 set ONATOM = `grep -c -E '^[AH][TE][OT][MA]' $WORKDIR/${PDBID}_0cyc.pdb`
@@ -4040,7 +4089,7 @@ endif
 ############################################## Check R-factors and geometry ##############################################
 
 #Warn for high structure RMSZ scores
-if ($RMSZB == 'huge' || $RMSZA == 'huge' || `echo $RMSZB $RMSZA | awk '{if ($1 > 10.000) {print "1"} else if ($2 > 10.000) {print "1"} else {print "0"}}'` == 1 ) then
+if (`echo $RMSZB $RMSZA | awk '{if ($1 > 10.000) {print "1"} else if ($2 > 10.000) {print "1"} else {print "0"}}'` == 1 ) then
   if ($LOCAL == 1) then
     #The warning
     echo " " | tee -a $LOG
@@ -4349,15 +4398,22 @@ eof
     if ($BINPUT == "FoIt") then 
       #The FoldIt model worked better
       echo " o The FoldIt input model works best" | tee -a $LOG
-      cp $WORKDIR/${PDBID}_FoIt.pdb $WORKDIR/${PDBID}_0cyc.pdb
+      cp $WORKDIR/${PDBID}_FoIt.pdb $WORKDIR/${PDBID}_selected.pdb
       
       #Annotate the versions data
       cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.data.foldit_used |= true'        $WORKDIR/versions.json.bak > $WORKDIR/versions.json
       cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.data.coordinates_edited |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
     else
       echo " o The PDB input model works best" | tee -a $LOG
+      cp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_selected.pdb
     endif
+  else  
+    #No Foldit model, just copy over the file
+    cp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_selected.pdb
   endif  
+else   
+  #Just copy the file
+  cp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_selected.pdb
 endif
 
 ############################################ Fix atom chiralities if needed ##############################################
@@ -4376,11 +4432,10 @@ if ($CHIRERR != 0) then
   echo " o Running chiron"   | tee -a $LOG
 
   #Do the fixes and report
-  mv $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_0cyc.old
 
   #PROGRAM: chiron
   cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.chiron.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-  $TOOLS/chiron -v $TOOLS/pdb_redo.dat $WORKDIR/${PDBID}_0cyc.log $WORKDIR/${PDBID}_0cyc.old $WORKDIR/${PDBID}_0cyc.pdb > $WORKDIR/chiron.log
+  $TOOLS/chiron -v $TOOLS/pdb_redo.dat $WORKDIR/${PDBID}_0cyc.log $WORKDIR/${PDBID}_selected.pdb $WORKDIR/${PDBID}_chiron.pdb > $WORKDIR/chiron.log
   set CHIFIX = `grep "ters fixed" $WORKDIR/chiron.log | awk '{print $5}'`
   echo "   * `grep 'tested' $WORKDIR/chiron.log`"         | tee -a $LOG
   echo "   * `grep 'ters fixed' $WORKDIR/chiron.log`"     | tee -a $LOG
@@ -4399,15 +4454,17 @@ if ($CHIRERR != 0) then
   endif
 
   #Make a debug record if chiron failed
-  if (-e $WORKDIR/${PDBID}_0cyc.pdb) then
+  if (-e $WORKDIR/${PDBID}_chiron.pdb) then
     #Do nothing
   else
-    mv $WORKDIR/${PDBID}_0cyc.old $WORKDIR/${PDBID}_0cyc.pdb
+    cp $WORKDIR/${PDBID}_selected.pdb $WORKDIR/${PDBID}_chiron.pdb
     echo "COMMENT: CHIRON: general error" >> $DEBUG
     echo "PDB-REDO,$PDBID"                >> $DEBUG
   endif
 else
+  #Just copy the file
   set CHIFIX = 0
+  cp $WORKDIR/${PDBID}_selected.pdb $WORKDIR/${PDBID}_chiron.pdb
 endif
 
 #############################################  Fix the backbone if needed  ###############################################
@@ -4429,7 +4486,7 @@ if ($GOT_PROT == 'T' && $DOFIXDMC == 1) then
   cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.fixDMC.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
   
   $TOOLS/fixDMC -v \
-  -pdb $WORKDIR/${PDBID}_0cyc.pdb \
+  -pdb $WORKDIR/${PDBID}_chiron.pdb \
   -output-name $PDBID \
   -tools $TOOLS \
   $OXTADD \
@@ -4440,15 +4497,18 @@ if ($GOT_PROT == 'T' && $DOFIXDMC == 1) then
   echo " o FixDMC added $NATMADD missing backbone atoms" | tee -a $LOG
 
   if (-e $WORKDIR/${PDBID}_fixDMC.pdb) then 
-    mv $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_0cyc.old
-    mv $WORKDIR/${PDBID}_fixDMC.pdb $WORKDIR/${PDBID}_0cyc.pdb
     mv $WORKDIR/${PDBID}.fasta.new $WORKDIR/${PDBID}.fasta >& /dev/null
   else
+    cp $WORKDIR/${PDBID}_chiron.pdb $WORKDIR/${PDBID}_fixDMC.pdb
     echo " o FixDMC failed" | tee -a $LOG
     echo "COMMENT: CHIRON: general error" >> $DEBUG
     echo "PDB-REDO,$PDBID"                >> $DEBUG
   endif
+else
+  #Just copy the file
+  cp $WORKDIR/${PDBID}_chiron.pdb $WORKDIR/${PDBID}_fixDMC.pdb
 endif  
+
 
 ###############################################  Set up occupancy fixing  ################################################
 #Set counter
@@ -4457,17 +4517,17 @@ set OCCREF = 0
 #Set up occupancy refinement if it is not surpressed
 if ($DOOCC == 1) then
   #Create file with hetero compounds with more than two occupancies if needed
-  if (`grep -E '^HETATM'+'.{10} ' $WORKDIR/${PDBID}_0cyc.pdb |  grep -v MSE | cut -c 22-27,56-60 | sort -u | cut -c 1-6 | uniq -c | awk '{if ($1 > 2) {$1 = ""; print substr($0,2,6)}}' | wc -l` != 0) then
+  if (`grep -E '^HETATM'+'.{10} ' $WORKDIR/${PDBID}_fixDMC.pdb |  grep -v MSE | cut -c 22-27,56-60 | sort -u | cut -c 1-6 | uniq -c | awk '{if ($1 > 2) {$1 = ""; print substr($0,2,6)}}' | wc -l` != 0) then
     #Grep the hetero compounds, but leave out MSE (seleno-methionine), then cut out the chains, residue numbers and
     #occupancies and sort. This will leave only the unique occupancies per residue. The chains and residue numbers are
     #cut out and for each residue the count is given. If this count is > 2, the chain and residue number is printed to
     # a file.
-    grep -E '^HETATM'+'.{10} ' $WORKDIR/${PDBID}_0cyc.pdb | grep -v MSE | cut -c 22-27,56-60 | sort -u | cut -c 1-6 | uniq -c | awk '{if ($1 > 2) {print substr($0,length($0)-5, length($0))}}' > $WORKDIR/occupancy.lst
+    grep -E '^HETATM'+'.{10} ' $WORKDIR/${PDBID}_fixDMC.pdb | grep -v MSE | cut -c 22-27,56-60 | sort -u | cut -c 1-6 | uniq -c | awk '{if ($1 > 2) {print substr($0,length($0)-5, length($0))}}' > $WORKDIR/occupancy.lst
 
   endif
 
   #Find hetero compounds with at least one atom with occupancy 0.01
-  foreach RES ("`grep -E '^HETATM'+'.{10} ' $WORKDIR/${PDBID}_0cyc.pdb | grep -v MSE | cut -c 22-27,56-60 | grep ' 0.01' | cut -c 1-6 | sort -u`")
+  foreach RES ("`grep -E '^HETATM'+'.{10} ' $WORKDIR/${PDBID}_fixDMC.pdb | grep -v MSE | cut -c 22-27,56-60 | grep ' 0.01' | cut -c 1-6 | sort -u`")
     echo "$RES" >> $WORKDIR/occupancy.lst
   end
 
@@ -4479,7 +4539,10 @@ if ($DOOCC == 1) then
       set RESN  = `echo $RES | cut -c 2-6`
       #Skip cases where the residue has an insertion code (i.e. $RESN has non-numeric characters)
       if (`echo $RESN | awk '{if ($0 ~ /^[0-9]+$/) {print "1"} else {print "0"}}'` == 1 ) then
-        echo "occupancy group id $OCCREF chain $CHNID residue $RESN" >> $WORKDIR/occupancy_cmd.refmac
+        #Skip cases where there are alternates for part of the residue
+        if (`grep -c -E '^HETATM'+'.{10}'+'[[:alnum:]]'+'....'+$CHNID+' {0,3}'+$RESN $WORKDIR/${PDBID}_fixDMC.pdb` == 0) then
+          echo "occupancy group id $OCCREF chain $CHNID residue $RESN" >> $WORKDIR/occupancy_cmd.refmac
+        endif  
       else
         @ OCCREF = ($OCCREF - 1)
       endif
@@ -4503,25 +4566,44 @@ if (($GOT_NUC == 'T' || $HBONDREST == 1 || $DOHOMOLOGY == 1) && ! -e $WORKDIR/nu
   echo "" | tee -a $LOG
   echo "" | tee -a $LOG
   echo "****** Structure specific restraints and targets ******" | tee -a $LOG
+  
+  #Run BLAST on the updated fasta file (for compatibility)
+  if ($?BLASTP) then
+    echo "-Running BLASTp against the PDB-REDO databank" | tee -a $LOG
+    cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.BLASTp.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
+  
+    $BLASTP \
+    -evalue 0.001 \
+    -num_descriptions 9999 \
+    -num_alignments 9999 \
+    -query $WORKDIR/$PDBID.fasta \
+    -out $WORKDIR/$PDBID.blast \
+    -db $TOOLS/pdbredo_seqdb.txt >& $WORKDIR/blast.log
+  else
+    echo " o BLASTp is missing or not configured properly" | tee -a $LOG
+    echo " o Cannot generate homology-based restraints"    | tee -a $LOG
+    set DOHOMOLOGY = 0
+  endif
+
 
   #Genrate nucleic acid restraints. Not for high or atomic resolution categories. PROGRAMS: libg and bphbond
   if ($GOT_NUC == 'T' && $DONUCR == 1 && $RESOTYPE < 4) then
     echo "-Generating nucleic acid restraints" | tee -a $LOG
     cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.libg.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-    libg -p $WORKDIR/${PDBID}_0cyc.pdb -o $WORKDIR/tstack.rest -w dsp >  $WORKDIR/nucrest.log
+    libg -p $WORKDIR/${PDBID}_fixDMC.pdb -o $WORKDIR/tstack.rest -w dsp >  $WORKDIR/nucrest.log
     touch $WORKDIR/tstack.rest
     #Clean the stacking restraints
     awk '{if (NF < 68) {print $0}}' $WORKDIR/tstack.rest | grep -v 'plan 3' > $WORKDIR/stacking.rest
     
     #Create base-pair H-bond restraints 
-    python3 $TOOLS/bphbond.py $WORKDIR/${PDBID}_0cyc.pdb $TOOLS/x3dna-dssr > $WORKDIR/bphbond.tmp
+    python3 $TOOLS/bphbond.py $WORKDIR/${PDBID}_fixDMC.pdb $TOOLS/x3dna-dssr > $WORKDIR/bphbond.tmp
     
     #Clean the restraints
     #Remove gap LINKRs
-    grep -v -E 'LINKR.{67}gap' $WORKDIR/${PDBID}_0cyc.pdb > $WORKDIR/${PDBID}_0cyc.tmp
+    grep -v -E 'LINKR.{67}gap' $WORKDIR/${PDBID}_fixDMC.pdb > $WORKDIR/${PDBID}_fixDMC.tmp
     
     #Make list of all atoms with alternates
-    echo "SELECT auth_asym_id,auth_seq_id,auth_atom_id FROM atom_site WHERE label_alt_id IS NOT NULL;" | $TOOLS/mmCQL $WORKDIR/${PDBID}_0cyc.tmp >& $WORKDIR/allalt.list
+    echo "SELECT auth_asym_id,auth_seq_id,auth_atom_id FROM atom_site WHERE label_alt_id IS NOT NULL;" | $TOOLS/mmCQL $WORKDIR/${PDBID}_fixDMC.tmp >& $WORKDIR/allalt.list
     
     #Loop over all restraints
     foreach REST (`cat $WORKDIR/bphbond.tmp | tr ' ' '_'`) 
@@ -4556,15 +4638,15 @@ if (($GOT_NUC == 'T' || $HBONDREST == 1 || $DOHOMOLOGY == 1) && ! -e $WORKDIR/nu
     endif
   else if ($GOT_NUC == 'T') then  
     echo "-Generating basepair hydrogen bond targets" | tee -a $LOG
-    python3 $TOOLS/bphbond.py $WORKDIR/${PDBID}_0cyc.pdb $TOOLS/x3dna-dssr > $WORKDIR/bphbond.rest
+    python3 $TOOLS/bphbond.py $WORKDIR/${PDBID}_fixDMC.pdb $TOOLS/x3dna-dssr > $WORKDIR/bphbond.rest
   endif
  
   #Generate a DSSP file
   if ($HBONDREST == 1 || $DOHOMOLOGY == 1) then
     #Define the secondary structure
-    $TOOLS/mkdssp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_0cyc.dssp >& $WORKDIR/dssp.log
+    $TOOLS/mkdssp $WORKDIR/${PDBID}_fixDMC.pdb $WORKDIR/${PDBID}_fixDMC.dssp >& $WORKDIR/dssp.log
 
-    if ( ! -e $WORKDIR/${PDBID}_0cyc.dssp) then
+    if ( ! -e $WORKDIR/${PDBID}_fixDMC.dssp) then
       #DSSP failed. Cannot make restraints
       echo " o Cannot produce hydrogen bond or homology-based restrains" | tee -a $LOG
       echo "DSSP: general error in restraint generation" >> $DEBUG
@@ -4586,8 +4668,8 @@ if (($GOT_NUC == 'T' || $HBONDREST == 1 || $DOHOMOLOGY == 1) && ! -e $WORKDIR/nu
       cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.detectHbonds.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
       
       $TOOLS/detectHbonds -v \
-      -pdb $WORKDIR/${PDBID}_0cyc.pdb \
-      -dssp $WORKDIR/${PDBID}_0cyc.dssp \
+      -pdb $WORKDIR/${PDBID}_fixDMC.pdb \
+      -dssp $WORKDIR/${PDBID}_fixDMC.dssp \
       -output-name $PDBID \
       -tools $TOOLS > $WORKDIR/hbondrest.log
       if ( ! -e $WORKDIR/${PDBID}_hbonds.rest) then
@@ -4606,6 +4688,7 @@ if (($GOT_NUC == 'T' || $HBONDREST == 1 || $DOHOMOLOGY == 1) && ! -e $WORKDIR/nu
 
   #Generate homology-based restraints
   if ($DOHOMOLOGY == 1 && $GOT_PROT == 'T' && -e $WORKDIR/$PDBID.blast) then
+  
     echo "-Generating homology-based restraints" | tee -a $LOG
 
     #Make a temporary directory
@@ -4640,8 +4723,8 @@ if (($GOT_NUC == 'T' || $HBONDREST == 1 || $DOHOMOLOGY == 1) && ! -e $WORKDIR/nu
     -alignout \
     -hitsummary \
     $HOMINCMD \
-    -pdb $WORKDIR/${PDBID}_0cyc.pdb \
-    -dssp $WORKDIR/${PDBID}_0cyc.dssp \
+    -pdb $WORKDIR/${PDBID}_fixDMC.pdb \
+    -dssp $WORKDIR/${PDBID}_fixDMC.dssp \
     -blast $WORKDIR/$PDBID.blast \
     -fasta $WORKDIR/$PDBID.fasta \
     -output-name $PDBID \
@@ -4685,7 +4768,7 @@ solventtest:
 echo "-Running Refmac grid search" | tee -a $LOG
 
 refmacat \
-XYZIN  $WORKDIR/${PDBID}_0cyc.pdb \
+XYZIN  $WORKDIR/${PDBID}_fixDMC.pdb \
 XYZOUT $WORKDIR/${PDBID}_solvent.pdb \
 HKLIN  $WORKDIR/$PDBID.mtz \
 $LIBLIN \
@@ -4843,7 +4926,7 @@ if ( ($RESOGAP == 1 || $FORCEPAIRED == 1) && $RESOCHECK == 1) then
 
     #Refine against data
     refmacat \
-    XYZIN  $WORKDIR/${PDBID}_0cyc.pdb \
+    XYZIN  $WORKDIR/${PDBID}_fixDMC.pdb \
     XYZOUT $WORKDIR/${PDBID}_res$RESCO.pdb \
     HKLIN  $WORKDIR/$PDBID.mtz \
     HKLOUT $WORKDIR/${PDBID}_restest.mtz \
@@ -5160,7 +5243,7 @@ ttestrunning:
 
         #Run refmac
         refmacat \
-        XYZIN  $WORKDIR/${PDBID}_0cyc.pdb \
+        XYZIN  $WORKDIR/${PDBID}_fixDMC.pdb \
         XYZOUT $WORKDIR/${PDBID}_ttest$TLSG.pdb \
         HKLIN  $WORKDIR/$PDBID.mtz \
         HKLOUT $WORKDIR/${PDBID}_ttest$TLSG.mtz \
@@ -5295,7 +5378,7 @@ eof
         echo "-TLS does not seem to work for this structure" | tee -a $LOG
         echo " o TLS refinement will not be used"  | tee -a $LOG
         #Set up input for B-weight optimisation
-        cp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_refin.pdb
+        cp $WORKDIR/${PDBID}_fixDMC.pdb $WORKDIR/${PDBID}_refin.pdb
         set DOTLS    = 0
         set TLSCMD   =        #Empty TLS command
         set TLSFILS  =        #No TLS files specified
@@ -5385,7 +5468,7 @@ tmoderunning:
 
             #Run refmac
             refmacat \
-            XYZIN  $WORKDIR/${PDBID}_0cyc.pdb \
+            XYZIN  $WORKDIR/${PDBID}_fixDMC.pdb \
             XYZOUT $WORKDIR/${PDBID}_tmode$TMODE.pdb \
             HKLIN  $WORKDIR/$PDBID.mtz \
             HKLOUT $WORKDIR/${PDBID}_tmode$TMODE.mtz \
@@ -5464,7 +5547,7 @@ eof
           set DOTLS   = 0  #Do not use TLS
           set TLSCMD  =    #Empty TLS command
           set TLSFILS =    #No TLS files specified
-          cp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_refin.pdb
+          cp $WORKDIR/${PDBID}_fixDMC.pdb $WORKDIR/${PDBID}_refin.pdb
         endif
     
       endif
@@ -5475,7 +5558,7 @@ eof
       set DOTLS   = 0  #Do not use TLS
       set TLSCMD  =    #Empty TLS command
       set TLSFILS =    #No TLS files specified
-      cp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_refin.pdb
+      cp $WORKDIR/${PDBID}_fixDMC.pdb $WORKDIR/${PDBID}_refin.pdb
     endif
   else
     #No TLS groups could be made
@@ -5486,12 +5569,12 @@ eof
     set DOTLS   = 0  #Do not use TLS
     set TLSCMD  =    #Empty TLS command
     set TLSFILS =    #No TLS files specified
-    cp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_refin.pdb
+    cp $WORKDIR/${PDBID}_fixDMC.pdb $WORKDIR/${PDBID}_refin.pdb
   endif
 
 else
   #Not using TLS ensure that the input file for the B-weight optimisation exists
-  cp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_refin.pdb
+  cp $WORKDIR/${PDBID}_fixDMC.pdb $WORKDIR/${PDBID}_refin.pdb
 endif
 
 
@@ -5545,7 +5628,7 @@ anisooriso:
       endif
 
       refmacat \
-      XYZIN  $WORKDIR/${PDBID}_0cyc.pdb \
+      XYZIN  $WORKDIR/${PDBID}_fixDMC.pdb \
       XYZOUT $WORKDIR/${PDBID}_${TYPETEST}ropic.pdb \
       HKLIN  $WORKDIR/$PDBID.mtz \
       HKLOUT $WORKDIR/${PDBID}_${TYPETEST}ropic.mtz \
@@ -5685,7 +5768,7 @@ else
 
   #Do not use TLS
   set DOTLS    = 0  #No TLS at all
-  cp $WORKDIR/${PDBID}_0cyc.pdb $WORKDIR/${PDBID}_refin.pdb
+  cp $WORKDIR/${PDBID}_fixDMC.pdb $WORKDIR/${PDBID}_refin.pdb
 
   #Do extra cycles in B-restraint weight optimisation
   set BTESTCYC = 15
@@ -6428,7 +6511,12 @@ else
   set RTLS  = `tail -n $LOGSTEP $WORKDIR/${PDBID}_besttls.log | head -n 1 | awk '{print $2}'`
   set RFTLS = `tail -n $LOGSTEP $WORKDIR/${PDBID}_besttls.log | head -n 1 | awk '{print $3}'`
   set FSCWTLS = `grep 'Average Fourier shell correlation' $WORKDIR/${PDBID}_besttls.log     | tail -n 1 | awk '{print $6}'`
-  set FSCFTLS = `grep 'AverageFree Fourier shell correlation' $WORKDIR/${PDBID}_besttls.log | tail -n 1 | awk '{print $5}'`
+  if (`grep -c 'AverageFree Fourier shell correlation' $WORKDIR/${PDBID}_0cyc.log` > 0) then 
+    set FSCFTLS = `grep 'AverageFree Fourier shell correlation' $WORKDIR/${PDBID}_0cyc.log | tail -n 1 | awk '{print $5}'`
+  else
+    set FSCFTLS = 'NA'
+  endif  
+
 
   #Validate R-free and R-free/R
   set SIGRFTLS   = `echo $RFTLS $CNTSTCNT | awk '{printf ("%.4f\n", $1/sqrt($2))}'`
@@ -6657,16 +6745,7 @@ if (-e $PDBOUT) then
   else
     set OBCONF = `grep -a 'Backbone conformation          :' $PDBOUT | head -n 1 | cut -c 36-42`
   endif
-#   if (`grep -a -c 'Bond lengths                   :' $PDBOUT` == 0) then
-#     set OBRMSZ = 'NA'
-#   else
-#     set OBRMSZ = `grep -a 'Bond lengths                   :' $PDBOUT | head -n 1 | cut -c 36-42`
-#   endif
-#   if (`grep -a -c 'Bond angles                    :' $PDBOUT` == 0) then
-#     set OARMSZ = 'NA'
-#   else
-#     set OARMSZ = `grep -a 'Bond angles                    :' $PDBOUT | head -n 1 | cut -c 36-42`
-#   endif
+
   #Get bump scores
   if (`grep -a -c 'Total number of bumps:' $PDBOUT` == 0) then
     set OBUMPS = 0
@@ -6710,8 +6789,6 @@ else
   set OZRAMA = 'NA'
   set OCHI12 = 'NA'
   set OBCONF = 'NA'
-#   set OBRMSZ = 'NA'
-#   set OARMSZ = 'NA'
   set OBUMPS = 'NA'
   set OWBMPS = 'NA'
   set OHBUNS = 'NA'
@@ -6747,17 +6824,6 @@ if (-e $WORKDIR/wc/pdbout.txt) then
   else
     set NBCONF = `grep -a 'Backbone conformation          :' $WORKDIR/wc/pdbout.txt | head -n 1 | cut -c 36-42`
   endif
-#   if (`grep -a -c 'Bond lengths                   :' $WORKDIR/wc/pdbout.txt` == 0) then
-#     set NBRMSZ = 'NA'
-#   else
-#     set NBRMSZ = `grep -a 'Bond lengths                   :' $WORKDIR/wc/pdbout.txt | head -n 1 | cut -c 36-42`
-#   endif
-#   if (`grep -a -c 'Bond angles                    :' $WORKDIR/wc/pdbout.txt` == 0) then
-#     set NARMSZ = 'NA'
-#   else
-#     set NARMSZ = `grep -a 'Bond angles                    :' $WORKDIR/wc/pdbout.txt | head -n 1 | cut -c 36-42`
-#   endif
-  #Get bump scores
   if (`grep -a -c 'Total number of bumps:' $WORKDIR/wc/pdbout.txt` == 0) then
     set NBUMPS = 0
     set NSBMPL = 0
@@ -6800,8 +6866,6 @@ else
   set NZRAMA = 'NA'
   set NCHI12 = 'NA'
   set NBCONF = 'NA'
-#   set NBRMSZ = 'NA'
-#   set NARMSZ = 'NA'
   set NBUMPS = 'NA'
   set NWBMPS = 'NA'
   set NHBUNS = 'NA'
@@ -6994,11 +7058,7 @@ echo "****** Structure rebuilding ******" | tee -a $LOG
 #Temporary HETATM and LINK workaround
 mv $WORKDIR/${PDBID}_besttls.pdb $WORKDIR/${PDBID}_besttls.old
 sed '/MSE/s/HETATM/ATOM  /g' $WORKDIR/${PDBID}_besttls.old > $WORKDIR/${PDBID}_besttls.pdb
-# $TOOLS/stripper -v $SMODE \
-# $WORKDIR/${PDBID}_besttls.mse \
-# $WORKDIR/${PDBID}_besttls.pdb \
-# $TOOLS/pdb_redo.dat \
-# >> $WORKDIR/stripper.log
+
 
 #Set fall-back values
 set NWATDEL = 0
@@ -8899,7 +8959,11 @@ eof
   set RFIN    = `tail -n $LOGSTEP $WORKDIR/${PDBID}_final.log | head -n 1 | awk '{print $2}'`
   set RFFIN   = `tail -n $LOGSTEP $WORKDIR/${PDBID}_final.log | head -n 1 | awk '{print $3}'`
   set FSCWFIN = `grep 'Average Fourier shell correlation' $WORKDIR/${PDBID}_final.log     | tail -n 1 | awk '{print $6}'`  
-  set FSCFFIN = `grep 'AverageFree Fourier shell correlation' $WORKDIR/${PDBID}_final.log | tail -n 1 | awk '{print $5}'`
+  if (`grep -c 'AverageFree Fourier shell correlation' $WORKDIR/${PDBID}_0cyc.log` > 0) then 
+    set FSCFFIN = `grep 'AverageFree Fourier shell correlation' $WORKDIR/${PDBID}_0cyc.log | tail -n 1 | awk '{print $5}'`
+  else
+    set FSCFFIN = 'NA'
+  endif  
 
   #Validate R-free
   set SIGRFFIN   = `echo $RFFIN $CNTSTCNT | awk '{printf ("%.4f\n", $1/sqrt($2))}'`
@@ -9277,16 +9341,6 @@ if (-e $WORKDIR/wf/pdbout.txt) then
   else
     set FBCONF = `grep -a 'Backbone conformation          :' $WORKDIR/wf/pdbout.txt | head -n 1 | cut -c 36-42`
   endif
-#   if (`grep -a -c 'Bond lengths                   :' $WORKDIR/wf/pdbout.txt` == 0) then
-#     set FBRMSZ = 'NA'
-#   else
-#     set FBRMSZ = `grep -a 'Bond lengths                   :' $WORKDIR/wf/pdbout.txt | head -n 1 | cut -c 36-42`
-#   endif
-#   if (`grep -a -c 'Bond angles                    :' $WORKDIR/wf/pdbout.txt` == 0) then
-#     set FARMSZ = 'NA'
-#   else
-#     set FARMSZ = `grep -a 'Bond angles                    :' $WORKDIR/wf/pdbout.txt | head -n 1 | cut -c 36-42`
-#   endif
   #Get bump scores
   if (`grep -a -c 'Total number of bumps:' $WORKDIR/wf/pdbout.txt` == 0) then
     set FBUMPS = 0
@@ -9741,33 +9795,35 @@ set PBNET = 'NA'
 
 #Only works with refined individual B-factors and proteins
 if ($BREFTYPE != "OVER" && $GOT_PROT == 'T') then
-  cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.rabdam.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
+  if (`grep -v '>' $WORKDIR/$PDBID.fasta | grep -o -E '[DE]' | wc -l` > 0) then 
+    cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.rabdam.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
   
-  echo " " | tee -a $LOG
-  echo "-Analysing radiation damage" | tee -a $LOG
-  
-  #Create and run RABDAM script
-  echo "$WORKDIR/${PDBID}_final_tot.pdb, outfiles=bnet, filter=False, batchContinue=True, temperature=cryo" > $WORKDIR/rabdam.cmd
-  rabdam -i $WORKDIR/rabdam.cmd > $WORKDIR/rabdam.log
-
-  #Get Bnet values and report
-  set BNET  = `grep 'Bnet =' $WORKDIR/rabdam.log | cut -d '=' -f 2`
-  set PBNET = `grep 'Bnet_percentile =' $WORKDIR/rabdam.log | awk '{printf "%.0f", $3}'`
-  
-  echo " "  | tee -a $LOG
-  echo "Bnet radiation damage: $BNET"  | tee -a $LOG
-  echo "Bnet percentile rank : $PBNET" | tee -a $LOG
-  
-  #Warn if it is a local user
-  if ($LOCAL == 0 && $PBNET > 94) then
-    #The warning
     echo " " | tee -a $LOG
-    echo "WARNING!" | tee -a $LOG
-    echo "--------" | tee -a $LOG
-    echo "Very strong radiation damage detected!" | tee -a $LOG
-    echo "Consider reprocessing your reflection data." | tee -a $LOG
-  endif
-  echo " " | tee -a $LOG
+    echo "-Analysing radiation damage" | tee -a $LOG
+  
+    #Create and run RABDAM script
+    echo "$WORKDIR/${PDBID}_final_tot.pdb, outfiles=bnet, filter=False, batchContinue=True, temperature=cryo" > $WORKDIR/rabdam.cmd
+    rabdam -i $WORKDIR/rabdam.cmd > $WORKDIR/rabdam.log
+
+    #Get Bnet values and report
+    set BNET  = `grep 'Bnet =' $WORKDIR/rabdam.log | cut -d '=' -f 2`
+    set PBNET = `grep 'Bnet_percentile =' $WORKDIR/rabdam.log | awk '{printf "%.0f", $3}'`
+  
+    echo " "  | tee -a $LOG
+    echo "Bnet radiation damage: $BNET"  | tee -a $LOG
+    echo "Bnet percentile rank : $PBNET" | tee -a $LOG
+  
+    #Warn if it is a local user
+    if ($LOCAL == 0 && $PBNET > 94) then
+      #The warning
+      echo " " | tee -a $LOG
+      echo "WARNING!" | tee -a $LOG
+      echo "--------" | tee -a $LOG
+      echo "Very strong radiation damage detected!" | tee -a $LOG
+      echo "Consider reprocessing your reflection data." | tee -a $LOG
+    endif
+    echo " " | tee -a $LOG
+  endif  
 endif
 
 ################################################    Ligand validation    #################################################
@@ -9804,7 +9860,7 @@ ligvalrunning:
         jobs > $WORKDIR/jobs.log
 
         if (`cat $WORKDIR/jobs.log | wc -l` < $NPROC) then
-
+          limit cputime 1h
           echo " o Validating residue $CHID $RESNUM" | tee -a $LOG
 
           $YASARA -txt $TOOLS/ligval.mcr \
@@ -9812,6 +9868,8 @@ ligvalrunning:
           "newpdb='$WORKDIR/${PDBID}_final.pdb'" \
           "resnum='$RESNUM'" \
           "chid='$CHID'" > $WORKDIR/ligval_$LIG.log
+          
+          limit cputime unlimited
         else
           #Wait a bit to start again
           sleep 2
@@ -9873,14 +9931,14 @@ ligvalrunning:
 endif
 
 #Remove empty files
-# foreach LIGLOG ( `find $WORKDIR -name "ligval_*.log"` )
-#   if (`grep -c Residue $LIGLOG` == 0) then
-#     rm $LIGLOG
-#   endif
-# end
+foreach LIGLOG ( `find $WORKDIR -name "ligval_*.log"` )
+  if (`grep -c Residue $LIGLOG` == 0) then
+    rm $LIGLOG
+  endif
+end
 
 #Accumulate the results if there are any ligands
-if (`$TOOLS/cif-grep -c -i _ligand.asym_id . $WORKDIR/$PDBID.extracted` > 0 || `echo $NLIG_LIST | grep -c ':'` != 0) then
+if ((`$TOOLS/cif-grep -c -i _ligand.asym_id . $WORKDIR/$PDBID.extracted` > 0 || `echo $NLIG_LIST | grep -c ':'` != 0) && `find $WORKDIR -name "ligval_*.log" | wc -l` > 0) then
   echo "-Compiling validation results" | tee -a $LOG
   python3 $TOOLS/ligval_json.py $WORKDIR > $WORKDIR/ligvaljson.log
 endif
@@ -9956,9 +10014,9 @@ if (`find $WORKDIR -name "ligval_*.log" | wc -l` > 0) then
       set NCATPF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.cation_pi_count" | awk '{printf "%.0f", $1}'` 
   
       #Give summary
-      echo " "                                                              | tee -a $LOG 
+      echo " "                                                                  | tee -a $LOG 
       echo "****** Ligand validation details ($RESID $CHID $RESNUM$INS) ******" | tee -a $LOG
-      echo " "                                                              | tee -a $LOG 
+      echo " "                                                                  | tee -a $LOG 
       echo "                                    Before  Final"          | tee -a $LOG 
       echo "Real-space R-factor               : $LIGRSRO   $LIGRSRF"    | tee -a $LOG 
       echo "Real-space correlation            : $LIGCCO   $LIGCCF"      | tee -a $LOG
@@ -10130,7 +10188,7 @@ if ($LOCAL == 1 || $SERVER == 1) then
   endif
 endif
 
-###################################################   Clean up round 2   #################################################
+###################################################   Clean up round 2   ##################################################
 
 #Clean out the mtz files (only for the databank)
 if ($LOCAL == 0) then
@@ -10173,13 +10231,12 @@ gzip -f $WORKDIR/${PDBID}_besttls.mtz
 
 #Merge data from input model
 $TOOLS/cif-merge -v \
--i $WORKDIR/${PDBID}_final_tot.pdb \
--o $WORKDIR/${PDBID}_final.cif \
-$DICTCMD \
---donor $WORKDIR/cache.cif >& $WORKDIR/cif-merge.log
+$WORKDIR/${PDBID}_final_tot.pdb \
+$WORKDIR/cache.cif \
+$WORKDIR/${PDBID}_nodssp.cif >& $WORKDIR/cif-merge.log
 
 #Fallback direct conversion
-if (! -e $WORKDIR/${PDBID}_final.cif) then
+if (! -e $WORKDIR/${PDBID}_nodssp.cif) then
   cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.pdb2cif.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
   cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software."cif-merge".used |= false' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
 
@@ -10203,19 +10260,29 @@ eof
   endif
 endif
 
-#Annotate the final model with DSSP
-$TOOLS/mkdssp $WORKDIR/${PDBID}_nodssp.cif $WORKDIR/${PDBID}_final.cif >& $WORKDIR/dssp.log
-
-
-if (! -e $WORKDIR/${PDBID}_final.cif) then
+#Verify the mmCIF conversion
+if (! -e $WORKDIR/${PDBID}_nodssp.cif) then
   #Give error message
-  echo " o Problem with mmCIF conversion" | tee -a $LOG
-  echo "COMMENT: cannot make mmCIF file" >> $DEBUG
-  echo "PDB-REDO,$PDBID"                 >> $DEBUG
+  echo " o Problem with mmCIF conversion. Cannot continue." | tee -a $LOG
+  echo "COMMENT: cannot make mmCIF file" >> $WHYNOT
+  echo "PDB-REDO,$PDBID"                 >> $WHYNOT
+  exit(1)
 endif  
 
 
+#Annotate the final model with DSSP
+$TOOLS/mkdssp $WORKDIR/${PDBID}_nodssp.cif $WORKDIR/${PDBID}_final.cif >& $WORKDIR/dssp.log
 
+#Verify the mmCIF conversion
+if (! -e $WORKDIR/${PDBID}_final.cif) then
+  #Give error message
+  echo " o Problem with DSSP annotation" | tee -a $LOG
+  echo "COMMENT: cannot make DSSP-annotated mmCIF file" >> $DEBUG
+  echo "PDB-REDO,$PDBID"                                >> $DEBUG
+  
+  #Copy over the non-DSSP file.
+  cp $WORKDIR/${PDBID}_nodssp.cif $WORKDIR/${PDBID}_final.cif
+endif  
 
 set TOUTPUT = "$OUTPUT.tmp"
 mkdir -p $TOUTPUT
