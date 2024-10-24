@@ -1,6 +1,6 @@
       PROGRAM BSELECT
 C=======================================================================
-C  Version 3.03 2024-01-10
+C  Version 3.04 2024-06-13
 C  Compares two different types of B-factor refinement and returns the 
 C  best one. Dedicated software, not for general use!
 C
@@ -35,6 +35,8 @@ C    Perrakis: "PDB_REDO: constructive validation, more than just
 C    looking for errors" Acta Cryst. D68, p. 484-496 (2012)
 C
 C  Version history:
+C  3.04:
+C  - Fix for format change in Refmacat output.
 C  3.03:
 C  - TLS models are now taken into account even if they are not refined
 C    in the same Refmac run.
@@ -124,7 +126,7 @@ C=======================================================================
 C-----Declare the basic variables and parameters
       INTEGER   I, J, K, T, N, STATUS, MAXLIN, STEPS
       CHARACTER VERS*4
-      PARAMETER (VERS='3.03')
+      PARAMETER (VERS='3.04')
 C-----MAXLIN is the maximum number of lines in the logfile
       PARAMETER (MAXLIN=90000)
       CHARACTER LOG1*255, LOG2*255, LINE*100, C2JUNK*2, BTYPEF*6, 
@@ -814,9 +816,9 @@ C-----------------------------------------------------------------------
 C-------Stop at the end of the table
         IF(LINE(1:2).EQ.'$$') GO TO 40
 C-------Skip empty(-ish) line
-        IF (LINE(50:57).EQ.'        ') GO TO 10
+        IF (LINE(50:60).EQ.'        ') GO TO 10
 C-------Get the number of restraints
-        READ(UNIT=LINE(50:57), FMT=*, ERR=10) TFREE     
+        READ(UNIT=LINE(50:60), FMT=*, ERR=10) TFREE     
         NFREE = NFREE + TFREE
 10    CONTINUE
 

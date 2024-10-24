@@ -1,6 +1,6 @@
       PROGRAM CIF2CIF
 C=======================================================================
-C  Version 9.03 2023-10-16
+C  Version 9.04 2024-10-24
 C  Cleans up mmCIF files to ensure that they can be used in an automated
 C  fashion. It works on all reasonably valid mmCIF reflection files. One
 C  weakpoint is that it cannot always handle files in which the data
@@ -74,6 +74,10 @@ C    Perrakis: "PDB_REDO: constructive validation, more than just
 C    looking for errors" Acta Cryst. D68, p. 484-496 (2012)
 C
 C  Changelog
+C  Version 9.04:
+C  - Bugfixes for merging sigma values of anomalous reflections when
+C    experimental sigma values are ignored. 
+C  - Problem case was 9fmr.
 C  Version 9.03:
 C  - Reflections with rediculously high sigI values are dropped.
 C  - Problem case was 8ebi.
@@ -174,7 +178,7 @@ C-----Declare the variables and parameters
       INTEGER   MAXDAT, MAXLAB, MAXCOL, I, J, K, L, STATUS
       CHARACTER FILLER*4
       CHARACTER VERS*4
-      PARAMETER (VERS='9.03')
+      PARAMETER (VERS='9.04')
 C-----MAXDAT is the maximum number of reflections in the file. This
 C-----should be enough for almost all reflection files.
       PARAMETER (MAXDAT=11000000)
@@ -221,7 +225,7 @@ C=========================== Help function=============================C
       IF (ARGS.EQ.0) THEN
       WRITE(6,*)'*****   CIF2CIF version: ',VERS,'   *****'
       WRITE(6,*) ' '
-      WRITE(6,*)'Cif2cif standardises reflection file for PDB_REDO an'//
+      WRITE(6,*)'Cif2cif standardises reflection file for PDB-REDO an'//
      +          'd performs a few sanity checks on the data.' 
       WRITE(6,*)'Written by Robbie P. Joosten'
       WRITE(6,*)'E-mail: r.joosten@nki.nl, robbie_joosten@hotmail.com '
@@ -699,8 +703,8 @@ C           Deal with missing values
             END IF
 C           Read sigF+ and sigF-
             IF (DEFSIG.EQV..TRUE.) THEN
-              SAPLUS = 1.0
-              SAMIN  = 1.0
+              SAPLUS = 0.01
+              SAMIN  = 0.01
             ELSE
               SAPLUS = GTREAL(LINE, COLUMN(11))
               SAMIN  = GTREAL(LINE, COLUMN(13))
@@ -728,7 +732,12 @@ C             Calculate the mean values
                 T3 = SAPLUS*2*APLUS
                 T4 = SAMIN*2*AMIN
                 SF(REFLEC) = SQRT(IMERGE(T1, T2, T3, T4))
-                SIGMAF(REFLEC) = SIMERGE(T1, T2, T3, T4)/(2* SF(REFLEC))
+                IF (DEFSIG.EQV..FALSE.) THEN
+                  SIGMAF(REFLEC) = 
+     +              SIMERGE(T1, T2, T3, T4)/(2* SF(REFLEC))
+                ELSE
+                  SIGMAF(REFLEC) = 0.01
+                ENDIF
               ELSE
                 SF(REFLEC) = APLUS
                 SIGMAF(REFLEC) = SAPLUS
@@ -789,7 +798,7 @@ C           Reject negative SF
 	    END IF
 C           Read sigF
             IF (DEFSIG.EQV..TRUE.) THEN
-              SIGMAF(REFLEC) = 0.0000
+              SIGMAF(REFLEC) = 0.01
             ELSE
               SIGMAF(REFLEC) = GTREAL(LINE, COLUMN(5))
 C             Reject line if no sensible data is found
@@ -823,8 +832,8 @@ C           Deal with missing values
             END IF  
 C           Read sigI+ and sigI-
             IF (DEFSIG.EQV..TRUE.) THEN
-              SAPLUS = 1.0
-              SAMIN  = 1.0
+              SAPLUS = 0.01
+              SAMIN  = 0.01
             ELSE
               SAPLUS = GTREAL(LINE, COLUMN(15))
               SAMIN  = GTREAL(LINE, COLUMN(17))
@@ -853,7 +862,11 @@ C             Calculate the mean values
                 T3 = SAPLUS*2*APLUS
                 T4 = SAMIN*2*AMIN
                 INTENS(REFLEC) = IMERGE(APLUS, AMIN, SAPLUS, SAMIN)
-                SIGMAI(REFLEC) = SIMERGE(APLUS, AMIN, SAPLUS, SAMIN)
+                IF (DEFSIG.EQV..FALSE.) THEN
+                  SIGMAI(REFLEC) = SIMERGE(APLUS, AMIN, SAPLUS, SAMIN)
+                ELSE
+                  SIGMAI(REFLEC) = 0.01
+                END IF
               ELSE
                 INTENS(REFLEC) = APLUS
                 SIGMAI(REFLEC) = SAPLUS

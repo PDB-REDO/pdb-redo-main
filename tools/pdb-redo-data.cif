@@ -2441,7 +2441,8 @@ RB
 RE  
 RH  
 RH3
-RU  
+RU
+RU2
 SB  
 SCN 
 SE  
@@ -3099,6 +3100,7 @@ _monomer.name_1
 9R4 Q
 9R7 Q
 9WV A
+A1D64 C
 A1LWV K
 A30 Y
 A3U F

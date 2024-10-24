@@ -113,7 +113,7 @@ set VERSION = `$TOOLS/fitr | head -n 1 | awk '{print $4}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"fitr":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
 # 19) chiron, optional
-set VERSION = `$TOOLS/chiron | head -n 1 | awk '{print $4}'`
+set VERSION = `$TOOLS/chiron --version | head -n 1 | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"chiron":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
 # 20) libg, optional
@@ -158,7 +158,7 @@ cp $VFILE $VFILE.tmp && jq '.software +={"DSSP":{ "version":$version, "used":tru
 set VERSION = `$TOOLS/pepflip --version | grep Version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"pepflip":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 30) mini-rsr, optional (with pepflip, or ligand fitting)
+# 30) mini-rsr, optional (with pepflip, loopwhole, or ligand fitting)
 set VERSION = `coot-mini-rsr --version | grep version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"coot-mini-rsr":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
@@ -227,13 +227,13 @@ cp $VFILE $VFILE.tmp && jq '.software +={"flipper":{ "version":$version, "used":
 set VERSION = `$TOOLS/distel.py --version | awk '{print $3}' | sed 's/)//'`
 cp $VFILE $VFILE.tmp && jq '.software +={"distel":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 48) rnbterror, optional
-set VERSION = `$TOOLS/rnbterror | grep version | awk '{print $4}'`
-cp $VFILE $VFILE.tmp && jq '.software +={"rnbterror":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
+# 48) Refmacat/Servalcat, always
+set VERSION = `refmacat --version | awk '{print $2}' | head -n 1`
+cp $VFILE $VFILE.tmp && jq '.software +={"Refmacat":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 49) rwcontents, always
-set VERSION = `rwcontents -i | grep 'patch' | awk '{print $6}'`
-cp $VFILE $VFILE.tmp && jq '.software +={"rwcontents":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
+# 49) DNATCO, optional
+set VERSION = `$DNATCO --version | grep DNATCO | awk '{print $2}' |tr -d ','`
+cp $VFILE $VFILE.tmp && jq '.software +={"dnatco":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
 # 50) loopwhole, optional
 set VERSION = `$TOOLS/loopwhole | grep version | awk '{print $4}'`
@@ -250,9 +250,9 @@ cp $VFILE $VFILE.tmp && jq '.software +={"findligand":{ "version":null, "used":f
 set VERSION = `$TOOLS/cif-merge --version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"cif-merge":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 54) fixDMC, optional
-set VERSION = `$TOOLS/fixDMC | head -n 1 | awk '{print $4}'`
-cp $VFILE $VFILE.tmp && jq '.software +={"fixDMC":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
+# 54) fix-dmc, optional
+set VERSION = `$TOOLS/fix-dmc --version | head -n 1 | awk '{print $3}'`
+cp $VFILE $VFILE.tmp && jq '.software +={"fix-dmc":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
 # 55) pdb2cif
 set VERSION = `$TOOLS/pdb2cif --version | awk '{print $3}'`
@@ -310,7 +310,6 @@ cp $VFILE $VFILE.tmp && jq '.software +={"rama-angles":{ "version":$version, "us
 
 # 69) Rabdam
 set VERSION = `rabdam --version | awk '{print $3}'`
-#set VERSION = "2.0"
 cp $VFILE $VFILE.tmp && jq '.software +={"rabdam":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
 #Cleanup
