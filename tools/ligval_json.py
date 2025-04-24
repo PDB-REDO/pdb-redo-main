@@ -2,7 +2,7 @@ from logging import ERROR, error
 from pathlib import Path
 
 import json
-import gzip 
+#import gzip 
 import re 
 import sys
 
@@ -58,16 +58,10 @@ class ligandvalidation:
         else: 
             jsonfile_final = jsonfile_final 
 
-        pdbfile_final = work_path/f'{pdb_id}_final.pdb'
-        if pdbfile_final.exists() == False:
-            sys.exit('pdbfile_final could not be found, stopped running script')
-        else: 
-            pdbfile_final = pdbfile_final
-
         output_file = work_path/f'{pdb_id}_ligval.json'
 
 
-        return ligval_list, versions_file, jsonfile_0cyc, jsonfile_final, output_file, pdbfile_final
+        return ligval_list, versions_file, jsonfile_0cyc, jsonfile_final, output_file
 
 ##### All functions required to obtain the "Data"-block of the output file #####
     def get_data(self, versions_file):
@@ -95,20 +89,20 @@ class ligandvalidation:
     def get_pdb_details_ligand(self, jsonfile_final, ligand):
         ligand_open = Path(ligand).read_text()
         residue = ligand_open.split('Residue')
-        pdb_compID = residue[1].split()[0]
         pdb_seqNum = int(residue[1].split()[2])
         pdb_strandID = residue[1].split()[1]
 
         jsonfile_final_open = Path(jsonfile_final).read_text() 
         final = json.loads(jsonfile_final_open)
         for element in final:
-            if element['pdb']['compID'] == pdb_compID and element['pdb']['seqNum'] == pdb_seqNum and element['pdb']['strandID'] == pdb_strandID:
+            if  element['pdb']['seqNum'] == pdb_seqNum and element['pdb']['strandID'] == pdb_strandID:
                 asymID_mmcif = element['asymID']
                 compID_mmcif = element['compID']
                 seqID_mmcif = element['seqID']
                 pdb_insCode = element['pdb']['insCode']
+                pdb_compID = element['pdb']['compID']
         
-        return asymID_mmcif, compID_mmcif, seqID_mmcif, pdb_compID, pdb_insCode, pdb_seqNum, pdb_strandID    
+        return asymID_mmcif, compID_mmcif, seqID_mmcif, pdb_compID, pdb_insCode, pdb_seqNum, pdb_strandID
 
     def was_ligand_added(self, ligand):
         ligand_open = Path(ligand).read_text()
@@ -117,15 +111,14 @@ class ligandvalidation:
         else:
             return True             ### Ligand was added by PDB-REDO ###
 
-    def get_added_ligand_occupancy(self, pdb_compID, pdb_seqNum, pdb_strandID, pdbfile_final):
+    def get_added_ligand_occupancy(self, ligand):
         ''' Only when ligand was added by PDB-REDO '''
-        pdbfile_open = Path(pdbfile_final).read_text().split('\n')
-        atoms_list = [line for line in pdbfile_open if line[0:5] == 'ATOM' or line[0:6] == 'HETATM']
-        occupancy_list = [atom[54:60] for atom in atoms_list if len(atom) == 80 and pdb_compID == atom[17:20] and str(pdb_seqNum) in atom[22:26] and pdb_strandID == atom[21]]
-        if occupancy_list != []:
-            occupancy = float(occupancy_list[0])
-        else:
-            sys.exit(f'Something went wrong in getting occupancy for {pdb_compID, pdb_seqNum, pdb_strandID}. Most likely something wrong with the input or the ligand not present in pdbfile_final')
+        try:
+            occupancy = [float(line.split()[3]) for line in Path(ligand).read_text().split('\n') if re.match(f'Final average occupancy:', line)][0] 
+
+        except IndexError:         ### Occupancy not listed for some reason ###
+            occupancy = None
+        
         return occupancy
         
 
@@ -330,7 +323,7 @@ class ligandvalidation:
         return interactions
       
  
-    def get_ligand_validation(self, ligval_list, jsonfile_final, jsonfile_0cyc, pdbfile_final):
+    def get_ligand_validation(self, ligval_list, jsonfile_final, jsonfile_0cyc):
         '''Get all the data for all ligands present for the "Ligand_validation_data"-block in the PDBID_ligval.json file'''      
         all_ligands_validation = []
         for ligand in ligval_list:
@@ -379,10 +372,10 @@ class ligandvalidation:
 ##### Combine data and ligand_validation_data blocks in one json formatted outputfile #####
     def main(self, input_path):
         '''Generate output file PDBID_ligval.json containing all ligand validation data'''
-        ligval_list, versions_file, jsonfile_0cyc, jsonfile_final, output_file, pdbfile_final = self.define_path_files(self, input_path)
+        ligval_list, versions_file, jsonfile_0cyc, jsonfile_final, output_file = self.define_path_files(self, input_path)
         pdb_id = self.define_pdbid(versions_file)
         data = self.get_data(self, versions_file)
-        ligand_validation = self.get_ligand_validation(self, ligval_list, jsonfile_final, jsonfile_0cyc, pdbfile_final)
+        ligand_validation = self.get_ligand_validation(self, ligval_list, jsonfile_final, jsonfile_0cyc)
         
         combined = {}
         combined['Data'] = data
