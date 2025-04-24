@@ -221,6 +221,12 @@ JSON_VAR['GOT_CARB'] = 'bool'
 JSON_VAR['BNET'] = 'float'
 JSON_VAR['PBNET'] = 'int'
 JSON_VAR['FIUSED'] = 'bool'
+JSON_VAR['LLFFIN'] = 'float'
+JSON_VAR['OCLASH'] = 'float'
+JSON_VAR['NCLASH'] = 'float'
+JSON_VAR['FCLASH'] = 'float'
+JSON_VAR['TOCLASH'] = 'int'
+JSON_VAR['TFCLASH'] = 'int'
 
 # The data is space-delimited, except for the spacegroup between quotes
 RE_COL = re.compile(r"'[^']+'|[^'\s]+")
