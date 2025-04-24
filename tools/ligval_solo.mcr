@@ -33,7 +33,7 @@ Console off
 
 
 #Load the files
-LoadPDB (newpdb)
+LoadCIF (newpdb)
 
 #Add hydrogens
 AddHydAll

@@ -38,8 +38,8 @@ Console off
 
 
 #Load the files
-LoadPDB (oripdb)
-LoadPDB (newpdb)
+LoadCIF (oripdb)
+LoadCIF (newpdb)
 
 #Calculate the atom shifts
 RMSDRes Res (resnum) Mol (chid) Obj 1, Res (resnum) Mol (chid) Obj 2, Match=Yes, Flip=Yes, Unit=Atom
