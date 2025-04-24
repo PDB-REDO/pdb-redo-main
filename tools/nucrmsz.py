@@ -139,7 +139,7 @@ def basepairs(json_file):
                     stretch =  float(p["simple_Stretch"])
                     buckle =  float(p["simple_Buckle"])
                     propeller =  float(p["simple_Propeller"])
-                    m = re.search("(-?\d+)", p["nt1"][2:])
+                    m = re.search(r"(-?\d+)", p["nt1"][2:])
                     res1 = m.string[:m.start()]
                     if res1 in DNA:
                         typ1 = "DNA"
@@ -151,7 +151,7 @@ def basepairs(json_file):
                         typ1 = "RNA"                        
                     else:
                         typ1 = "other"
-                    m = re.search("(-?\d+)", p["nt2"][2:])
+                    m = re.search(r"(-?\d+)", p["nt2"][2:])
                     res2 = m.string[:m.start()]
                     if res2 in DNA:
                         typ2 = "DNA"
