@@ -48,133 +48,126 @@ set VERSION = `grep version versions.log | cut -c 34-37`
 cp $VFILE $VFILE.tmp && jq '.software +={"WHAT_CHECK":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 cd .. && rm -r wcjunk
 
-#  6) prepper, always
+#  5) prepper, always
 set VERSION = `$TOOLS/prepper --version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"prepper":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
 
-#  8) cif2cif, always
+#  6) cif2cif, always
 set VERSION = `$TOOLS/cif2cif | head -n 1 | awk '{print $4}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"cif2cif":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-#  9) extractor, always
+#  7) extractor, always
 set VERSION = `$TOOLS/extractor --version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"extractor":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 10) cif2mtz, always
+# 9) cif2mtz, always
 set VERSION = `cif2mtz -i | grep Program | awk '{print $3}'`
 if ($VERSION == "") then
   set VERSION = `cif2mtz -i | grep 'patch' | awk '{print $6}'`
 endif
 cp $VFILE $VFILE.tmp && jq '.software +={"cif2mtz":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 11) mtzutils, always
+# 10) mtzutils, always
 set VERSION = `mtzutils -i | grep Program | awk '{print $3}'`
 if ($VERSION == "") then
   set VERSION = `mtzutils -i | grep 'patch' | awk '{print $6}'`
 endif
 cp $VFILE $VFILE.tmp && jq '.software +={"mtzutils":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 12) cad, always
+# 11) cad, always
 set VERSION = `cad -i | grep Program | awk '{print $3}'`
 if ($VERSION == "") then
   set VERSION = `cad -i | grep 'patch' | awk '{print $6}'`
 endif
 cp $VFILE $VFILE.tmp && jq '.software +={"cad":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 13) ctruncate, optional 
+# 12) ctruncate, optional 
 set VERSION = `ctruncate -i | grep 'Program:' | awk '{print $4}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"ctruncate":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 14) unique, always
+# 13) unique, always
 set VERSION = `unique -i | grep Program | awk '{print $3}'`
 if ($VERSION == "") then
   set VERSION = `unique -i | grep 'patch' | awk '{print $6}'`
 endif
 cp $VFILE $VFILE.tmp && jq '.software +={"unique":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 15) freerflag, always
+# 14) freerflag, always
 set VERSION = `freerflag -i | grep Program | awk '{print $4}'`
 if ($VERSION == "") then
   set VERSION = `freerflag -i | grep 'patch' | awk '{print $6}'`
 endif
 cp $VFILE $VFILE.tmp && jq '.software +={"freerflag":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 16) sfcheck, always
+# 15) sfcheck, always
 set VERSION = `sfcheck -h | grep Vers | cut -d ';' -f 1 | awk '{print $6}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"sfcheck":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 17) refmac, always
+# 16) refmac, always
 set VERSION = `refmac5 -i | grep Program | awk '{print $4}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"refmac":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 18) fitr, always
+# 17) fitr, always
 set VERSION = `$TOOLS/fitr | head -n 1 | awk '{print $4}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"fitr":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 19) chiron, optional
+# 18) chiron, optional
 set VERSION = `$TOOLS/chiron --version | head -n 1 | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"chiron":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 20) libg, optional
+# 19) libg, optional
 cp $VFILE $VFILE.tmp && jq '.software +={"libg":{ "version":null, "used":false }}' $VFILE.tmp > $VFILE
 
-# 21) binliner, optional
+# 20) binliner, optional
 set VERSION = `$TOOLS/binliner | head -n 1 | awk '{print $4}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"binliner":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 22) resolute, optional
+# 21) resolute, optional
 set VERSION = `$TOOLS/resolute | head -n 1 | awk '{print $4}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"resolute":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 23) bselect, optional
+# 22) bselect, optional
 set VERSION = `$TOOLS/bselect | head -n 1 | awk '{print $4}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"bselect":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 24) picker, always
+# 23) picker, always
 set VERSION = `$TOOLS/picker | head -n 1 | awk '{print $4}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"picker":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 25) tlsanl, optional
-tlsanl \
-<< eof >& versions.log
-eof
-set VERSION = `grep VERSION versions.log | awk '{print $3}'`
-cp $VFILE $VFILE.tmp && jq '.software +={"tlsanl":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
-
-# 26) libcheck, optional
+# 24) libcheck, optional
 set VERSION = `libcheck -i | grep Vers | awk '{print $5}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"libcheck":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 27) centrifuge, optional
+# 25) centrifuge, optional
 set VERSION = `$TOOLS/centrifuge --version | grep Version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"centrifuge":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 28) DSSP, always
+# 26) DSSP, always
 set VERSION = `$TOOLS/mkdssp --version | head -n 1| awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"DSSP":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 29) pepflip, optional
+# 27) pepflip, optional
 set VERSION = `$TOOLS/pepflip --version | grep Version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"pepflip":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 30) mini-rsr, optional (with pepflip, loopwhole, or ligand fitting)
+# 28) mini-rsr, optional (with pepflip, loopwhole, or ligand fitting)
 set VERSION = `coot-mini-rsr --version | grep version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"coot-mini-rsr":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 31) SideAide, optional
+# 29) SideAide, optional
 set VERSION = `$TOOLS/SideAide --version | grep Version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"SideAide":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 32) what_todo, optional
+# 30) what_todo, optional
 set VERSION = `$TOOLS/what_todo | head -n 1 | awk '{print $4}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"what_todo":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 33) longinus, optional
+# 31) longinus, optional
 set VERSION = `$TOOLS/longinus | head -n 1 | awk '{print $4}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"longinus":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 34) YASARA, optional
+# 32) YASARA, optional
 if ($?YASARA) then
   $YASARA -txt \
   << eof >& versions.log
@@ -184,22 +177,22 @@ eof
   cp $VFILE $VFILE.tmp && jq '.software +={"YASARA":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 endif
 
-# 36) density-fitness, always
+# 33) density-fitness, always
 set VERSION = `$TOOLS/density-fitness --version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"density-fitness":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 38) sftools, optional
+# 34) sftools, optional
 cp $VFILE $VFILE.tmp && jq '.software +={"sftools":{ "version":null, "used":false }}' $VFILE.tmp > $VFILE
 
-# 39) platonyzer, optional
+# 35) platonyzer, optional
 set VERSION = `$TOOLS/platonyzer --version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"platonyzer":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 40) detectHbonds, optional
+# 36) detectHbonds, optional
 set VERSION = `$TOOLS/detectHbonds | grep version | awk '{print $4}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"detectHbonds":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 41) modelcompare, always
+# 37) modelcompare, always
 set VERSION = `$TOOLS/modelcompare | grep version | awk '{print $4}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"modelcompare":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
@@ -276,11 +269,11 @@ endif
 set VERSION = `$TOOLS/carbivore | head -n 1 | awk '{print $4}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"carbivore":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 61) pdbset
-set VERSION = `pdbset -i | grep 'patch' | awk '{print $6}'`
-cp $VFILE $VFILE.tmp && jq '.software +={"pdbset":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
+# 61) Gemmi
+set VERSION = `gemmi --version | awk '{print $2}'`
+cp $VFILE $VFILE.tmp && jq '.software +={"gemmi":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 62) mmCQL
+# 62) mmCQL, always
 set VERSION = `$TOOLS/mmCQL --version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"mmCQL":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
@@ -311,6 +304,15 @@ cp $VFILE $VFILE.tmp && jq '.software +={"rama-angles":{ "version":$version, "us
 # 69) Rabdam
 set VERSION = `rabdam --version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"rabdam":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
+
+# 70) restr2ccd
+set VERSION = `$TOOLS/restr2ccd --version | awk '{print $3}'`
+cp $VFILE $VFILE.tmp && jq '.software +={"restr2ccd":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
+
+# 71) molprobity.clashscore
+molprobity.clashscore --version >& versions.log
+set VERSION = `cat versions.log | cut -d '+' -f 1`
+cp $VFILE $VFILE.tmp && jq '.software +={"molprobity.clashscore":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
 #Cleanup
 rm versions.log
