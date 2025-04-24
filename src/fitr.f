@@ -1,6 +1,6 @@
       PROGRAM FITR
 C=======================================================================
-C  Version 1.02 2024-04-11
+C  Version 1.02 2025-03-23
 C  Checks to see wheter one set of R-factors fits the other
 C
 C  Usage: fitr R1 Rfree1 R2 Rfree2 (cut-off)
@@ -43,6 +43,9 @@ C  - Added the help function.
 C  Version 1.01:
 C  - Increases the tollerance for lower than expected R-factor
 C  - Better handling of corrupt input.
+C  Version 1.02:
+C  - Fundamental change. The test is now whether the second set of 
+C    values is higher than the first. 
 C=======================================================================
       IMPLICIT NONE
 C-----Declare the basic variables and parameters
@@ -61,19 +64,19 @@ C=========================== Help function=============================C
       IF (ARGS.EQ.0) THEN
       WRITE(6,*)'*****   FITR version: ',VERS,'   *****'
       WRITE(6,*) ' '
-      WRITE(6,*)'Fitr checks wheter one set of R-factors fits the oth'//
-     +          'er. It returns ''1'' if it does and ''0'' if it does'//
-     +          ' not.' 
+      WRITE(6,*)'Fitr checks whether new R-factors fit the reference '//
+     +          'values. It returns ''1'' if it does and ''0'' if it '//
+     +          'does not. Lower values are not flagged.' 
       WRITE(6,*)'Written by Robbie Joosten'
       WRITE(6,*)'E-mail: r.joosten@nki.nl, robbie_joosten@hotmail.com '
       WRITE(6,*) ' '
       WRITE(6,*)'Usage:'
       WRITE(6,*)'fitr R1 RFREE1 R2 RFREE2 (CUT_OFF)'
       WRITE(6,*)' '
-      WRITE(6,*)'R1 is the first R-factor as a fractional number.'
-      WRITE(6,*)'RFREE1 is the first free R-factor.'
-      WRITE(6,*)'RFREE1 is the second R-factor.'
-      WRITE(6,*)'RFREE2 is the second free R-factor.'
+      WRITE(6,*)'R1 is the reference R-factor as a fractional number.'
+      WRITE(6,*)'RFREE1 is the reference free R-factor.'
+      WRITE(6,*)'R2 is the calculated R-factor.'
+      WRITE(6,*)'RFREE2 is the calculated free R-factor.'
       WRITE(6,*)'CUT_OFF is an optional cut-off value (default = 0.05).'
       WRITE(6,*)'    '
       WRITE(6,*)'Citing FITR:'
@@ -104,8 +107,8 @@ C-----Use custom cut-off?
       
       
 C-----Check values
-      DIFFR  = ABS(R1-R2)
-      DIFFRF = ABS(RF1-RF2)
+      DIFFR  = (R2-R1)
+      DIFFRF = (RF2-RF1)
       IF ((DIFFR.LE.CUTOFF).OR.(DIFFRF.LE.CUTOFF)) THEN
         ISFIT = 1    
       ELSE
