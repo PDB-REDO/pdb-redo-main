@@ -16,13 +16,10 @@ def dssr_data(dssr_file):
                 type_bond = p["name"]
                 if type_bond == "WC" or type_bond == "Wobble":
                     nucleotides = p["bp"]
-                    chain1 = p["nt1"][0:1]
-                    try:
-                        pos = p["nt1"].index("^")   
-                        ins1 = p["nt1"][pos+1:pos+2]
-                    except:
-                        ins1 = "."
-                    m = re.search("(-?\d+)", p["nt1"][2:])
+                    pos = p["nt1"].index(".")
+                    chain1 = p["nt1"][0:pos]
+                    seqnum1 = re.findall(r"(-?\d+)", p["nt1"][pos+1:])[-1]
+                    m = re.search(r"(-?\d+)", p["nt1"][2:])
                     res1 = m.string[:m.start()]
                     if res1 in DNA:
                         typ1 = "DNA"
@@ -34,15 +31,21 @@ def dssr_data(dssr_file):
                         typ1 = "RNA"                        
                     else:
                         typ1 = "other"   
-                    seqnum1 = re.findall("(-?\d+)", p["nt1"][2:])[-1]                
-                    chain2 = p["nt2"][0:1]
+                    try:
+                        pos = p["nt1"].index("^")   
+                        ins1 = p["nt1"][pos+1:pos+2]
+                    except:
+                        ins1 = "."
+                    pos = p["nt2"].index(".")
+                    chain2 = p["nt2"][0:pos]
+                    seqnum2 = re.findall(r"(-?\d+)", p["nt2"][pos:])[-1]
+                    m = re.search(r"(-?\d+)", p["nt2"][pos:])
+                    res2 = m.string[:m.start()]
                     try:
                         pos = p["nt2"].index("^")
                         ins2 = p["nt2"][pos+1:pos+2]
                     except:  
                         ins2 = "."
-                    m = re.search("(-?\d+)", p["nt2"][2:])
-                    res2 = m.string[:m.start()]
                     if res2 in DNA:
                         typ2 = "DNA"
                     elif res2 in RNA:
@@ -53,7 +56,7 @@ def dssr_data(dssr_file):
                         typ2 = "DNA" 
                     else:
                         typ2 = "other"  
-                    seqnum2 = re.findall("(-?\d+)", p["nt2"][2:])[-1]    
+                        
                     a =  p["hbonds_desc"].split(",")
                     for i in a:
                         if "O6" in i and "N4" in i:
