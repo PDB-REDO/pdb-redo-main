@@ -1,14 +1,14 @@
 #!/usr/bin/python3
 
 """
-  Version 0.07 2022-02-02
+  Version 0.07 2025-04-30
 
-  Calculate dihedral and distance restraint violation statistics.
+  Calculate  distance restraint violation statistics.
   List rmsZ and outliers.
   Optionally create a YASARA macro to visualise restraint violations.
 
-  Written by Robbie Joosten, Bart van Beusekom & Wouter Touw
-  E-mail:    r.joosten@nki.nl, robie_joosten@hotmail.com
+  Written by Robbie Joosten, Bart van Beusekom, Wouter Touw, Daniel Alvarez Salmoral
+  E-mail:    r.joosten@nki.nl
 
   If you publish results (directly or indirectly) obtained by using
   distel: Please, refer to (one of) these references:
@@ -38,6 +38,8 @@
     looking for errors" Acta Cryst. D68, p. 484-496 (2012)
 
   Change log
+  Version 0.07
+  - Now works with mmCIF files only.
   Version 0.06: 
   - Calculates Jackknife stdev estimate
   Version 0.05:
@@ -72,7 +74,7 @@ DISTANCE_MACRO = 'distel_distance_restraints.mcr'
 DISTANCE_SCENE = 'distel_distance_restraints.sce'
 TORSION_MACRO = 'distel_torsion_restraints.mcr'
 TORSION_SCENE = 'distel_torsion_restraints.sce'
-VERSION = 0.05
+VERSION = 0.07
 
 LOG = logging.getLogger(__name__)
 
@@ -85,7 +87,7 @@ def _main():
     """
     fmt_version = 'distel (version {})'
     descr = '{} - {}'.format(fmt_version.format(VERSION),
-                             'Analyze and visualize restraints.')
+                             'Analyze restraints.')
     parser = DefaultHelpParser(description=descr)
     parser.add_argument('-v', '--verbose', help='Verbose mode',
                         action='store_true')
@@ -98,7 +100,7 @@ def _main():
                         action='store_true')
     parser.set_defaults(verbose=False, print_version=False)
     parser.add_argument('pdb_file_path',
-                        help='Path to input PDB file (.gz and .bz2 supported)',
+                        help='Path to input mmCIF file (.gz and .bz2 supported)',
                         type=lambda x: is_valid_file(parser, x))
     parser.add_argument('rest_file_path',
                         help='Path to input restraint file '
@@ -111,18 +113,18 @@ def _main():
 
     restraint_pairs, restraint_quads = read_restraints(args.rest_file_path)
     restraints = restraint_pairs + restraint_quads
-    pdb_atoms = read_pdb(args.pdb_file_path)
-    distance_matches, dihedral_matches = match_restraints_to_atoms(restraints,
-                                                                   pdb_atoms)
-    yasara_restraints = calc_distance_deviations(distance_matches, args.yasmcr)
-    write_yasara_macro(yasara_restraints, DISTANCE_MACRO,
-                       args.pdb_file_path, DISTANCE_SCENE)
+    pdb_atoms, atom_site_columns = read_pdb(args.pdb_file_path)
+    distance_matches, dihedral_matches = match_restraints_to_atoms(restraints,pdb_atoms,atom_site_columns)
+    
+    yasara_restraints = calc_distance_deviations(distance_matches, args.yasmcr, atom_site_columns)
+    #write_yasara_macro(yasara_restraints, DISTANCE_MACRO,
+                       #args.pdb_file_path, DISTANCE_SCENE)
 
-    yasara_restraints = calc_dihedral_angle_deviations(dihedral_matches,
-                                                       args.yasmcr)
-    write_yasara_macro(yasara_restraints, TORSION_MACRO,
-                       args.pdb_file_path, TORSION_SCENE, side_chains=False)
-
+    yasara_restraints = calc_dihedral_angle_deviations(dihedral_matches,args.yasmcr,atom_site_columns)
+    #write_yasara_macro(yasara_restraints, TORSION_MACRO,
+                       #args.pdb_file_path, TORSION_SCENE, side_chains=False)
+    
+    
 def jackknife(x, func):
     """Jackknife estimate of the estimator func"""
     n = len(x)
@@ -183,7 +185,7 @@ def calc_dihedral_angle(v1, v2, v3, v4):
     return angle*180/math.pi
 
 
-def calc_dihedral_angle_deviations(matches, do_yasara):
+def calc_dihedral_angle_deviations(matches, do_yasara,atom_site_columns):
     """Calculate rmsZ and outlier statistics for dihedral angle restraints.
 
     Return None if there are no matches or all restraints are ignored.
@@ -195,10 +197,10 @@ def calc_dihedral_angle_deviations(matches, do_yasara):
     for match in matches:
         target = match[4][0]
         sigma = match[4][1]
-        v1 = Vector.from_atom_record(match[0])
-        v2 = Vector.from_atom_record(match[1])
-        v3 = Vector.from_atom_record(match[2])
-        v4 = Vector.from_atom_record(match[3])
+        v1 = Vector.from_atom_record(match[0],atom_site_columns)
+        v2 = Vector.from_atom_record(match[1],atom_site_columns)
+        v3 = Vector.from_atom_record(match[2],atom_site_columns)
+        v4 = Vector.from_atom_record(match[3],atom_site_columns)
         dih = calc_dihedral_angle(v1, v2, v3, v4)
         z = calc_angle_z(target, sigma, dih)
         total_z_sq += z**2
@@ -229,7 +231,7 @@ def calc_distance(v1, v2):
     return dif.l2_norm()
 
 
-def calc_distance_deviations(matches, do_yasara):
+def calc_distance_deviations(matches, do_yasara, atom_site_columns):
     """Calculate rmsZ and outlier statistics for distance restraints.
 
     Return lines for YASARA macro if do_yasara is True.
@@ -244,8 +246,8 @@ def calc_distance_deviations(matches, do_yasara):
     for match in matches:
         target = match[2][0]
         sigma = match[2][1]
-        dist = calc_distance(Vector.from_atom_record(match[0]),
-                             Vector.from_atom_record(match[1]))
+        dist = calc_distance(Vector.from_atom_record(match[0],atom_site_columns),
+                             Vector.from_atom_record(match[1],atom_site_columns))
         z = (dist - target) / sigma
         violation = abs(z)
         # check if there is not another restraint for the same atoms with a
@@ -258,8 +260,8 @@ def calc_distance_deviations(matches, do_yasara):
                 other_target = other_match[2][0]
                 other_sigma = other_match[2][1]
                 other_dist = calc_distance(
-                    Vector.from_atom_record(other_match[0]),
-                    Vector.from_atom_record(other_match[1]))
+                    Vector.from_atom_record(other_match[0], atom_site_columns),
+                    Vector.from_atom_record(other_match[1],atom_site_columns))
                 other_z = (other_dist - other_target) / other_sigma
                 other_violation = abs(other_z)
                 if other_violation < violation:
@@ -295,32 +297,32 @@ def calc_distance_deviations(matches, do_yasara):
     return yasara_lines
 
 
-def match_restraints_to_atoms(restraint_tuples, pdb_atoms):
+def match_restraints_to_atoms(restraint_tuples, pdb_atoms, atom_site_columns):
     """Determine ATOM/HETATM lines that match restraint atom tuples.
 
     Return a tuple (distance, torsion) of lists of restraint target and sigma.
     """
+    
+    column_dict = {col:i for i, col in enumerate(atom_site_columns)}
+    
+   
+    
     match1, match2, match3, match4 = None, None, None, None
     two_matches = []
     four_matches = []
     for restraint in restraint_tuples:
         for atom_line in pdb_atoms:
-            if atom_line[21:27] == restraint[0][0] and \
-                    atom_line[12:16].strip() == restraint[0][2] and \
-                    atom_line[16] == restraint[0][1]:
+            
+            atom_info = parse_atom_line(atom_line,column_dict)
+            #print(atom_info, restraint)
+            if atom_info == restraint[0]:
                 match1 = atom_line
-            elif atom_line[21:27] == restraint[1][0] and \
-                    atom_line[12:16].strip() == restraint[1][2] and \
-                    atom_line[16] == restraint[1][1]:
+            elif atom_info == restraint[1]:
                 match2 = atom_line
             if len(restraint) == 5:
-                if atom_line[21:27] == restraint[2][0] and \
-                        atom_line[12:16].strip() == restraint[2][2] and \
-                        atom_line[16] == restraint[2][1]:
+                if atom_info == restraint[2]:
                     match3 = atom_line
-                elif atom_line[21:27] == restraint[3][0] and \
-                        atom_line[12:16].strip() == restraint[3][2] and \
-                        atom_line[16] == restraint[3][1]:
+                elif atom_info == restraint[3]:
                     match4 = atom_line
         if match1 and match2 and (match3, match4) == (None, None):
             two_matches.append((match1, match2, restraint[2]))
@@ -334,6 +336,34 @@ def match_restraints_to_atoms(restraint_tuples, pdb_atoms):
               len(four_matches))
     return two_matches, four_matches
 
+def read_pdb(pdb_file):
+    """Return a list of ATOM and HETATM lines from PDB file."""
+    lines = read(pdb_file)
+    
+    atom_site_columns = []
+    atoms = []
+    capture = False
+    previous_line_was_loop = False
+    
+    for line in lines:
+        line = line.strip()
+        if previous_line_was_loop and line.startswith('_atom_site'):
+            capture = True
+            atom_site_columns.append(line.split('.')[1])  # Add the current line
+        elif capture:
+            if line.startswith('_atom_site'):
+                atom_site_columns.append(line.split('.')[1])  # Continue adding
+            else:
+                
+                if line.startswith('ATOM') or line.startswith('HETATM'):
+                    atoms.append(line)
+        
+        # Check if current line is 'loop_' for the next iteration
+        previous_line_was_loop = line == 'loop_'
+        
+    
+    LOG.debug('%d atoms read.', len(atoms))
+    return atoms, atom_site_columns
 
 def parse_complete_atom(atom_words):
     """Parse the list atom_words in external restraint format.
@@ -348,9 +378,7 @@ def parse_complete_atom(atom_words):
     ins, alte = atom_words[5], atom_words[9]
     ins = ' ' if ins == '.' else ins
     alte = ' ' if alte == '.' else alte
-    return '{0:1s}{1:>4d}{2:1s}'.format(atom_words[1],
-                                        int(atom_words[3]),
-                                        ins), alte, atom_words[7]
+    return (atom_words[1],int(atom_words[3]),ins), alte, atom_words[7]
 
 
 def parse_distance_restraint(restraint_line):
@@ -430,9 +458,10 @@ def parse_distance_restraint(restraint_line):
     altc2 = altc
     ins2 = ins
     atm2 = atm
-    return ('{0:1s}{1:>4d}{2:1s}'.format(ch1, resn1, ins1), altc1, atm1), \
-           ('{0:1s}{1:>4d}{2:1s}'.format(ch2, resn2, ins2), altc2, atm2), \
+    return ((ch1, resn1, ins1), altc1, atm1), \
+           ((ch2, resn2, ins2), altc2, atm2), \
            (targ, sigma)
+
 
 
 def parse_torsion_restraint(restraint_line):
@@ -476,13 +505,18 @@ def parse_torsion_restraint(restraint_line):
     return restraint
 
 
-def read_pdb(pdb_file):
-    """Return a list of ATOM and HETATM lines from PDB file."""
-    lines = read(pdb_file)
-    atoms = [l.strip() for l in lines if
-             l.startswith('ATOM') or l.startswith('HETATM')]
-    LOG.debug('%d atoms read.', len(atoms))
-    return atoms
+
+def parse_atom_line(line, column_dict):
+    
+    auth_asym_id = line.split()[column_dict['auth_asym_id']]
+    auth_seq_id = int(line.split()[column_dict['auth_seq_id']])
+    inscode = ' ' if line.split()[column_dict['pdbx_PDB_ins_code']] == '?' else line.split()[column_dict['pdbx_PDB_ins_code']]
+    atom_name = line.split()[column_dict['auth_atom_id']]
+    alt_code =  ' ' if line.split()[4] == '.' else line.split()[4]
+     
+    atom_info = ((auth_asym_id, auth_seq_id, inscode), alt_code, atom_name)
+    
+    return atom_info
 
 
 def read_restraints(restraint_file):
@@ -584,7 +618,6 @@ def yasara_violation_colour(violation):
     """Map violation to integer between 120 and 359."""
     colour = int(359-24*violation)
     return colour if colour >= 120 else 120
-
 
 if __name__ == '__main__':
     _main()

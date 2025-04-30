@@ -117,8 +117,11 @@ class Vector(object):
         return self._z
 
     @classmethod
-    def from_atom_record(cls, atom_record):
-        x, y, z = atom_record[30:38], atom_record[38:46], atom_record[46:54]
+    def from_atom_record(cls, atom_record, atom_site_columns):
+        column_dict = {col:i for i, col in enumerate(atom_site_columns)}
+        
+        
+        x, y, z = atom_record.split()[column_dict['Cartn_x']], atom_record.split()[column_dict['Cartn_y']], atom_record.split()[column_dict['Cartn_z']]
         vector = cls(x, y, z)
         return vector
 
@@ -148,14 +151,14 @@ def is_valid_file(parser, arg, empty_allowed=False):
 def read(pdb_file_path):
     """Return lines from uncompressed, .gz or .bz2 file."""
     if pdb_file_path.endswith('.gz'):
-        with gzip.open(pdb_file_path) as fh:
+        with gzip.open(pdb_file_path, 'rt',  encoding='utf-8') as fh:
             return fh.readlines()
 
     if pdb_file_path.endswith('.bz2'):
-        with bz2.BZ2File(pdb_file_path) as fh:
+        with bz2.BZ2File(pdb_file_path, 'rt',  encoding='utf-8') as fh:
             return fh.readlines()
 
-    with open(pdb_file_path) as fh:
+    with open(pdb_file_path, 'rt',  encoding='utf-8') as fh:
         return fh.readlines()
 
 
