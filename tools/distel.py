@@ -1,7 +1,7 @@
-#!/usr/bin/python3
+#!/usr/bin/python
 
 """
-  Version 0.07 2025-04-30
+  Version 0.08 2025-05-01
 
   Calculate  distance restraint violation statistics.
   List rmsZ and outliers.
@@ -38,6 +38,8 @@
     looking for errors" Acta Cryst. D68, p. 484-496 (2012)
 
   Change log
+  Version 0.08
+  - Stripped program to bare minimum.
   Version 0.07
   - Now works with mmCIF files only.
   Version 0.06: 
@@ -69,12 +71,7 @@ import numpy as np
 from helpers import DefaultHelpParser, Vector, VersionActionStdOut, \
                     is_valid_file, read, setup_logger
 
-
-DISTANCE_MACRO = 'distel_distance_restraints.mcr'
-DISTANCE_SCENE = 'distel_distance_restraints.sce'
-TORSION_MACRO = 'distel_torsion_restraints.mcr'
-TORSION_SCENE = 'distel_torsion_restraints.sce'
-VERSION = 0.07
+VERSION = 0.08
 
 LOG = logging.getLogger(__name__)
 
@@ -94,12 +91,8 @@ def _main():
     parser.add_argument('--version', help='Print version',
                         action=VersionActionStdOut,
                         version=fmt_version.format(VERSION))
-    parser.add_argument('-m', '--yasmcr',
-                        help='Write YASARA macro(s)? ({} and/or {})'.format(
-                            DISTANCE_MACRO, TORSION_MACRO),
-                        action='store_true')
     parser.set_defaults(verbose=False, print_version=False)
-    parser.add_argument('pdb_file_path',
+    parser.add_argument('mmcif_file_path',
                         help='Path to input mmCIF file (.gz and .bz2 supported)',
                         type=lambda x: is_valid_file(parser, x))
     parser.add_argument('rest_file_path',
@@ -111,18 +104,12 @@ def _main():
 
     setup_logger(LOG, args.verbose)
 
-    restraint_pairs, restraint_quads = read_restraints(args.rest_file_path)
-    restraints = restraint_pairs + restraint_quads
-    pdb_atoms, atom_site_columns = read_pdb(args.pdb_file_path)
-    distance_matches, dihedral_matches = match_restraints_to_atoms(restraints,pdb_atoms,atom_site_columns)
-    
-    yasara_restraints = calc_distance_deviations(distance_matches, args.yasmcr, atom_site_columns)
-    #write_yasara_macro(yasara_restraints, DISTANCE_MACRO,
-                       #args.pdb_file_path, DISTANCE_SCENE)
+    restraint_pairs = read_restraints(args.rest_file_path)
+    restraints = restraint_pairs 
+    mmcif_atoms, atom_site_columns = read_mmcif(args.mmcif_file_path)
+    distance_matches = match_restraints_to_atoms(restraints,mmcif_atoms,atom_site_columns)
 
-    yasara_restraints = calc_dihedral_angle_deviations(dihedral_matches,args.yasmcr,atom_site_columns)
-    #write_yasara_macro(yasara_restraints, TORSION_MACRO,
-                       #args.pdb_file_path, TORSION_SCENE, side_chains=False)
+    calc_distance_deviations(distance_matches,atom_site_columns)
     
     
 def jackknife(x, func):
@@ -142,96 +129,13 @@ def rms(x):
     return np.sqrt(np.mean(x**2))
     
 
-def calc_angle(v1, v2, v3):
-    """Return angle in degrees."""
-    u = v1 - v2
-    w = v3 - v2
-    return u.angle(w)*180/math.pi
-
-
-def calc_angle_difference(target, found):
-    """Return signed angle difference between target and found angle.
-
-    Degrees
-    """
-    return (target - found + 180) % 360 - 180
-
-
-def calc_angle_z(target, sigma, found):
-    """Return Z in degrees."""
-    return calc_angle_difference(target, found)/sigma
-
-
-def calc_dihedral_angle(v1, v2, v3, v4):
-    """Return dihedral angle in degrees."""
-    ab = v1 - v2
-    cb = v3 - v2
-    db = v4 - v3
-    # The dihedral angle is the angle between the planes spanned
-    # by vectors ab/cb and db/cb
-    u = ab ** cb
-    v = db ** cb
-    angle = u.angle(v)
-
-    # Calculate the direction of normal vector of the plane spanned by
-    # the two normal vectors above
-    w = u ** v
-    try:
-        if cb.angle(w) > 0.001:
-            angle = -angle
-    except ZeroDivisionError:
-        # The two normal vectors are parallel
-        pass
-    return angle*180/math.pi
-
-
-def calc_dihedral_angle_deviations(matches, do_yasara,atom_site_columns):
-    """Calculate rmsZ and outlier statistics for dihedral angle restraints.
-
-    Return None if there are no matches or all restraints are ignored.
-    """
-    yasara_lines = []
-    if len(matches) == 0:
-        return None
-    total_z_sq, num_restraints_ignored = 0.0, 0
-    for match in matches:
-        target = match[4][0]
-        sigma = match[4][1]
-        v1 = Vector.from_atom_record(match[0],atom_site_columns)
-        v2 = Vector.from_atom_record(match[1],atom_site_columns)
-        v3 = Vector.from_atom_record(match[2],atom_site_columns)
-        v4 = Vector.from_atom_record(match[3],atom_site_columns)
-        dih = calc_dihedral_angle(v1, v2, v3, v4)
-        z = calc_angle_z(target, sigma, dih)
-        total_z_sq += z**2
-        msg = '{0:s} -- {1:s} -- {2:s} -- {3:s} | {4:7.2f} {5:7.2f} ' \
-              '{6:7.2f} {7:7.2f}'.format(match[0][12:27], match[1][12:27],
-                                         match[2][12:27], match[3][12:27],
-                                         target, sigma, dih, z)
-        if abs(z) > 4:
-            LOG.info('OUTLIER: %s', msg)
-        else:
-            LOG.debug('         %s', msg)
-
-        # generate line for YASARA plane
-        if do_yasara:
-            yasara_lines.append(yasara_restraint_plane(match,
-                                                       abs(z)))
-    if len(matches) == num_restraints_ignored:
-        LOG.info('All restraints ignored')
-        return None
-    rmsz = math.sqrt(total_z_sq / (len(matches) - num_restraints_ignored))
-    LOG.info('Torsion angle restraint rmsZ: %6.2f', rmsz)
-    return yasara_lines
-
-
 def calc_distance(v1, v2):
     """Return Euclidian distance between two vectors."""
     dif = v1 - v2
     return dif.l2_norm()
 
 
-def calc_distance_deviations(matches, do_yasara, atom_site_columns):
+def calc_distance_deviations(matches, atom_site_columns):
     """Calculate rmsZ and outlier statistics for distance restraints.
 
     Return lines for YASARA macro if do_yasara is True.
@@ -276,11 +180,6 @@ def calc_distance_deviations(matches, do_yasara, atom_site_columns):
                 LOG.info('OUTLIER: %s', msg)
             else:
                 LOG.debug('         %s', msg)
-
-            # generate line for YASARA arrow
-            if do_yasara:
-                yasara_lines.append(yasara_restraint_arrow(match,
-                                                           violation))
         else:
             num_restraints_ignored += 1
             
@@ -297,7 +196,7 @@ def calc_distance_deviations(matches, do_yasara, atom_site_columns):
     return yasara_lines
 
 
-def match_restraints_to_atoms(restraint_tuples, pdb_atoms, atom_site_columns):
+def match_restraints_to_atoms(restraint_tuples, mmcif_atoms, atom_site_columns):
     """Determine ATOM/HETATM lines that match restraint atom tuples.
 
     Return a tuple (distance, torsion) of lists of restraint target and sigma.
@@ -307,11 +206,10 @@ def match_restraints_to_atoms(restraint_tuples, pdb_atoms, atom_site_columns):
     
    
     
-    match1, match2, match3, match4 = None, None, None, None
+    match1, match2 = None, None
     two_matches = []
-    four_matches = []
     for restraint in restraint_tuples:
-        for atom_line in pdb_atoms:
+        for atom_line in mmcif_atoms:
             
             atom_info = parse_atom_line(atom_line,column_dict)
             #print(atom_info, restraint)
@@ -319,27 +217,17 @@ def match_restraints_to_atoms(restraint_tuples, pdb_atoms, atom_site_columns):
                 match1 = atom_line
             elif atom_info == restraint[1]:
                 match2 = atom_line
-            if len(restraint) == 5:
-                if atom_info == restraint[2]:
-                    match3 = atom_line
-                elif atom_info == restraint[3]:
-                    match4 = atom_line
-        if match1 and match2 and (match3, match4) == (None, None):
+        if match1 and match2:
             two_matches.append((match1, match2, restraint[2]))
-        elif match1 and match2 and match3 and match4:
-            four_matches.append((match1, match2, match3, match4, restraint[4]))
-        match1, match2, match3, match4 = None, None, None, None
+        match1, match2 = None, None
 
-    LOG.debug('%d restraints matched with two atoms from PDB data',
+    LOG.debug('%d restraints matched with two atoms from model data',
               len(two_matches))
-    LOG.debug('%d restraints matched with four atoms from PDB data',
-              len(four_matches))
-    return two_matches, four_matches
+    return two_matches
 
-def read_pdb(pdb_file):
-    """Return a list of ATOM and HETATM lines from PDB file."""
-    lines = read(pdb_file)
-    
+def read_mmcif(mmcif_file):
+    """Return a list of ATOM and HETATM lines from model file."""
+    lines = read(mmcif_file)
     atom_site_columns = []
     atoms = []
     capture = False
@@ -354,7 +242,6 @@ def read_pdb(pdb_file):
             if line.startswith('_atom_site'):
                 atom_site_columns.append(line.split('.')[1])  # Continue adding
             else:
-                
                 if line.startswith('ATOM') or line.startswith('HETATM'):
                     atoms.append(line)
         
@@ -462,50 +349,6 @@ def parse_distance_restraint(restraint_line):
            ((ch2, resn2, ins2), altc2, atm2), \
            (targ, sigma)
 
-
-
-def parse_torsion_restraint(restraint_line):
-    """Parse the atoms, target and sigma from torsion restraint string.
-
-    Return a tuple of
-    (id_atom_1, id_atom_2, id_atom_3, id_atom_4, (target, sigma)) where
-    id_atom is a string tuple of (residue_id, alt_loc, atom_name).
-    Return None if the torsion angle restraint cannot be parsed.
-
-    A 'complete' external restraints format is expected
-    'exte torsion first {0:s} next {1:s} next {2:s} next {3:s}'
-    ' value {4:8.3f} sigma {5:8.3f} period 1'
-    atoms are
-    'chain {0:1s} resi {1:4d} inse {2:1s} atom {3:>4s} alte {4:1s}'
-
-    The insertion codes and alternate codes are always expected.
-    Raise a ValueError if insertion code, alternate code, value, sigma and
-    period are not at the expected positions.
-    Raise a ValueError if the period is not equal to 1.
-    """
-    restraint = None
-    if not restraint_line.startswith('exte tors'):
-        return None
-    s = restraint_line.split()
-    if len(s) != 52 or \
-       (s[7], s[18], s[29], s[40]) != ('inse', )*4 or \
-       (s[11], s[22], s[33], s[44]) != ('alte', )*4 or \
-       (s[46], s[48], s[50]) != ('value', 'sigma', 'period'):
-        raise ValueError('Unexpected restraint format: {}'.format(
-            restraint_line))
-    at1 = parse_complete_atom(s[3:13])
-    at2 = parse_complete_atom(s[14:24])
-    at3 = parse_complete_atom(s[25:35])
-    at4 = parse_complete_atom(s[36:46])
-    target, sigma = float(s[47]), float(s[49])
-    period = int(s[51])
-    if period != 1:
-        raise ValueError('Period must be 1')
-    restraint = (at1, at2, at3, at4, (target, sigma))
-    return restraint
-
-
-
 def parse_atom_line(line, column_dict):
     
     auth_asym_id = line.split()[column_dict['auth_asym_id']]
@@ -525,99 +368,15 @@ def read_restraints(restraint_file):
     The restraint tuples are atom strings and target/sd.
     """
     distance_pairs = []
-    torsion_quads = []
     lines = read(restraint_file)
     for line in lines:
         atom_pair = parse_distance_restraint(line.rstrip('\n'))
         if atom_pair:
             distance_pairs.append(atom_pair)
             continue
-        atom_quad = parse_torsion_restraint(line.rstrip('\n'))
-        if atom_quad:
-            torsion_quads.append(atom_quad)
+
     LOG.debug('%d distance restraints read.', len(distance_pairs))
-    LOG.debug('%d torsion angle restraints read.', len(torsion_quads))
-    return distance_pairs, torsion_quads
-
-
-def write_yasara_macro(yasara_restraints, yasara_file, pdb_file,
-                       yasara_scene, side_chains=True):
-    """Write YASARA macro for the generation of distance or torsion restraint
-    scenes.
-    """
-
-    if not yasara_restraints or len(yasara_restraints) == 0:
-        return None
-
-    with open(yasara_file, 'w') as ym:
-        ym.write('OnError Exit\n')
-        ym.write('Fog 0\n')
-        ym.write('ColorBG white\n')
-        ym.write('Console off\n')
-        ym.write('LoadPDB {}\n'.format(pdb_file))
-        ym.write('ColorAtom all, gray\n')
-        ym.write('Style Stick\n')
-        if not side_chains:
-            ym.write('HideAtom Protein Sidechain\n')
-        for line in yasara_restraints:
-            ym.write('{}\n'.format(line))
-        ym.write('CenterAll\n')
-        ym.write('NiceOriAll\n')
-        ym.write('Zoom Steps=0\n')
-        ym.write('SaveSce {}\n'.format(yasara_scene))
-        ym.write('Exit\n')
-
-
-def yasara_atom_selection(atom_record):
-    """Return YASARA atom selection string from PDB format ATOM records."""
-    atom_fmt = '{}{} Res {} Mol {}'
-    alt = ''
-    if atom_record[16] != ' ':
-        alt = ' AltLoc {}'.format(atom_record[16])
-    return atom_fmt.format(atom_record[12:16], alt, atom_record[22:27],
-                           atom_record[21])
-
-
-def yasara_restraint_arrow(match, violation):
-    """Return ShowArrow YANACONDA command string."""
-    y_fmt = 'ShowArrow Start=AtAtom, {}, End=AtAtom, {}, ' \
-            'Radius=0.1, Color={}'
-    return y_fmt.format(yasara_atom_selection(match[0]),
-                        yasara_atom_selection(match[1]),
-                        yasara_violation_colour(violation))
-
-
-def yasara_restraint_plane(match, violation):
-    """Return ShowPolygon YANACONDA command(s) string.
-
-    Return Ci-1 - Ni - CAi for phi and also Ni - CAi - Ci
-    Return CAi - Ci - Ni+1 for psi
-    """
-    col_fmt = 'ShowPolygon Coordinates=Atoms, Color={},  Alpha=70, ' \
-              'Vertices=3, {}, {}, {}'
-    share_fmt = 'ShowPolygon Coordinates=Atoms, Color=Gray, Alpha=50, ' \
-                'Vertices=3, {}, {}, {}'
-    if match[0][13] == 'C':
-        # match C-N-CA-C
-        phi_plane = col_fmt.format(yasara_violation_colour(violation),
-                                   yasara_atom_selection(match[0]),
-                                   yasara_atom_selection(match[1]),
-                                   yasara_atom_selection(match[2]))
-        share_plane = share_fmt.format(yasara_atom_selection(match[1]),
-                                       yasara_atom_selection(match[2]),
-                                       yasara_atom_selection(match[3]))
-        return '{}\n{}'.format(phi_plane, share_plane)
-    # match N-CA-C-N
-    return col_fmt.format(yasara_violation_colour(violation),
-                          yasara_atom_selection(match[1]),
-                          yasara_atom_selection(match[2]),
-                          yasara_atom_selection(match[3]))
-
-
-def yasara_violation_colour(violation):
-    """Map violation to integer between 120 and 359."""
-    colour = int(359-24*violation)
-    return colour if colour >= 120 else 120
+    return distance_pairs
 
 if __name__ == '__main__':
     _main()

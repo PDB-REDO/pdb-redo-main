@@ -148,17 +148,17 @@ def is_valid_file(parser, arg, empty_allowed=False):
         return arg
 
 
-def read(pdb_file_path):
+def read(mmcif_file_path):
     """Return lines from uncompressed, .gz or .bz2 file."""
-    if pdb_file_path.endswith('.gz'):
-        with gzip.open(pdb_file_path, 'rt',  encoding='utf-8') as fh:
+    if mmcif_file_path.endswith('.gz'):
+        with gzip.open(mmcif_file_path, 'rt',  encoding='utf-8') as fh:
             return fh.readlines()
 
-    if pdb_file_path.endswith('.bz2'):
-        with bz2.BZ2File(pdb_file_path, 'rt',  encoding='utf-8') as fh:
+    if mmcif_file_path.endswith('.bz2'):
+        with bz2.BZ2File(mmcif_file_path, 'rt',  encoding='utf-8') as fh:
             return fh.readlines()
 
-    with open(pdb_file_path, 'rt',  encoding='utf-8') as fh:
+    with open(mmcif_file_path, 'rt',  encoding='utf-8') as fh:
         return fh.readlines()
 
 
