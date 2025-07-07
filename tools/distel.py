@@ -1,11 +1,10 @@
 #!/usr/bin/python
 
 """
-  Version 0.08 2025-05-01
+  Version 0.09 2025-05-29
 
   Calculate  distance restraint violation statistics.
   List rmsZ and outliers.
-  Optionally create a YASARA macro to visualise restraint violations.
 
   Written by Robbie Joosten, Bart van Beusekom, Wouter Touw, Daniel Alvarez Salmoral
   E-mail:    r.joosten@nki.nl
@@ -38,6 +37,8 @@
     looking for errors" Acta Cryst. D68, p. 484-496 (2012)
 
   Change log
+  Version 0.09
+  - Bugfix in how the order of the atom_site columsn is established.
   Version 0.08
   - Stripped program to bare minimum.
   Version 0.07
@@ -203,12 +204,13 @@ def match_restraints_to_atoms(restraint_tuples, mmcif_atoms, atom_site_columns):
     """
     
     column_dict = {col:i for i, col in enumerate(atom_site_columns)}
-    
+    #print(column_dict)
    
     
     match1, match2 = None, None
     two_matches = []
     for restraint in restraint_tuples:
+        #print(restraint)
         for atom_line in mmcif_atoms:
             
             atom_info = parse_atom_line(atom_line,column_dict)
@@ -235,11 +237,11 @@ def read_mmcif(mmcif_file):
     
     for line in lines:
         line = line.strip()
-        if previous_line_was_loop and line.startswith('_atom_site'):
+        if previous_line_was_loop and line.startswith('_atom_site.'):
             capture = True
             atom_site_columns.append(line.split('.')[1])  # Add the current line
         elif capture:
-            if line.startswith('_atom_site'):
+            if line.startswith('_atom_site.'):
                 atom_site_columns.append(line.split('.')[1])  # Continue adding
             else:
                 if line.startswith('ATOM') or line.startswith('HETATM'):

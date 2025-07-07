@@ -240,24 +240,38 @@ def basepairs(json_file):
             print ("bpG rmsZ      : NA")
             print ("Count         : NA")
             return ""
-
-        #Cast the data
-        azshear = np.array(lzshear)
-        azstretch = np.array(lzstretch)
-        azbuckle = np.array(lzbuckle)
-        azpropeller = np.array(lzpropeller)
-        azbpg = np.array(lzbpg)
-
-        print (" ")
-        print ("Overall base pair rmsZ-scores (sigma)")
-        print ("-----------------------------")       
-        print ("Shear rmsZ    : " +  "{:.3f}".format(rms(azshear)) + " (" + "{:.3f}".format(jackknife_stdev(azshear, rms)) +")") 
-        print ("Stretch rmsZ  : " +  "{:.3f}".format(rms(azstretch)) + " (" + "{:.3f}".format( jackknife_stdev(azstretch, rms)) +")")
-        print ("Buckle rmsZ   : " +  "{:.3f}".format(rms(azbuckle)) + " (" + "{:.3f}".format( jackknife_stdev(azbuckle, rms)) +")")
-        print ("Propeller rmsZ: " +  "{:.3f}".format(rms(azpropeller)) + " (" + "{:.3f}".format( jackknife_stdev(azpropeller, rms)) +")")
-        print ("bpG rmsZ      : " +  "{:.3f}".format(rms(azbpg)) + " (" + "{:.3f}".format( jackknife_stdev(azbpg, rms)) +")")
-        print ("Count: ",n)
-        return ""
+   
+        if n > 0: 
+            #Cast the data
+            azshear = np.array(lzshear)
+            azstretch = np.array(lzstretch)
+            azbuckle = np.array(lzbuckle)
+            azpropeller = np.array(lzpropeller)
+            azbpg = np.array(lzbpg)
+  
+            print (" ")
+            print ("Overall base pair rmsZ-scores (sigma)")
+            print ("-----------------------------")       
+            print ("Shear rmsZ    : " +  "{:.3f}".format(rms(azshear)) + " (" + "{:.3f}".format(jackknife_stdev(azshear, rms)) +")") 
+            print ("Stretch rmsZ  : " +  "{:.3f}".format(rms(azstretch)) + " (" + "{:.3f}".format( jackknife_stdev(azstretch, rms)) +")")
+            print ("Buckle rmsZ   : " +  "{:.3f}".format(rms(azbuckle)) + " (" + "{:.3f}".format( jackknife_stdev(azbuckle, rms)) +")")
+            print ("Propeller rmsZ: " +  "{:.3f}".format(rms(azpropeller)) + " (" + "{:.3f}".format( jackknife_stdev(azpropeller, rms)) +")")
+            print ("bpG rmsZ      : " +  "{:.3f}".format(rms(azbpg)) + " (" + "{:.3f}".format( jackknife_stdev(azbpg, rms)) +")")
+            print ("Count         : ",n)
+            return ""
+      
+        else: 
+            #There are pairs but no WC ones
+            print (" ")
+            print ("Overall base pair rmsZ-scores")
+            print ("-----------------------------")  
+            print ("Shear rmsZ    : NA") 
+            print ("Stretch rmsZ  : NA")
+            print ("Buckle rmsZ   : NA")
+            print ("Propeller rmsZ: NA")
+            print ("bpG rmsZ      : NA")
+            print ("Count         : NA")
+            return ""
 
 #Get input file
 pdb_file = os.path.abspath(sys.argv[1])

@@ -197,7 +197,7 @@ set VERSION = `$TOOLS/modelcompare | grep version | awk '{print $4}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"modelcompare":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
 # 42) hoder, optional
-set VERSION = `$TOOLS/hoder | head -n 1 | awk '{print $4}'`
+set VERSION = `$TOOLS/hoder --version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"HODER":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
 # 43) PHASER, optional
@@ -208,9 +208,9 @@ cp $VFILE $VFILE.tmp && jq '.software +={"PHASER":{ "version":$version, "used":f
 set VERSION = `$TOOLS/txt2json.py -h |  grep version | awk '{print $3}' | tr -d ')'`
 cp $VFILE $VFILE.tmp && jq '.software +={"txt2json":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 45) seqrescopier, optional
-set VERSION = `$TOOLS/seqrescopier | head -n 1 | awk '{print $4}'`
-cp $VFILE $VFILE.tmp && jq '.software +={"seqrescopier":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
+# # 45) seqrescopier, optional
+# set VERSION = `$TOOLS/seqrescopier | head -n 1 | awk '{print $4}'`
+# cp $VFILE $VFILE.tmp && jq '.software +={"seqrescopier":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
 # 46) flipper, always
 set VERSION = `$TOOLS/flipper --version | awk '{print $3}'`
@@ -313,6 +313,14 @@ cp $VFILE $VFILE.tmp && jq '.software +={"restr2ccd":{ "version":$version, "used
 molprobity.clashscore --version >& versions.log
 set VERSION = `cat versions.log | cut -d '+' -f 1`
 cp $VFILE $VFILE.tmp && jq '.software +={"molprobity.clashscore":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
+
+# 72) gethalogenbonds
+set VERSION = "1.00"
+cp $VFILE $VFILE.tmp && jq '.software +={"gethalogenbonds":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
+
+# 73) Privateer
+set VERSION = `privateer -i | tail -n 1 | awk '{print $4}'`
+cp $VFILE $VFILE.tmp && jq '.software +={"privateer":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
 #Cleanup
 rm versions.log

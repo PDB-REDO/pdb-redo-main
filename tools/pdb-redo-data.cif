@@ -12,6 +12,7 @@
 # - A list of compounds that are each others epimers around a particular atom 
 # - A list of compounds that can be translated to their parent cannonical amino acid in fasta files
 # - A list of residues that can be added to the parent chain's TLS group
+# - A list of compounds that are to be excluded from HalBS calculations
 
 data_PDB_REDO_DAT
 # 
@@ -3551,7 +3552,7 @@ P9S C
 PAQ Y
 PAT W
 PBF F
-PCA E 
+PCA Q 
 PCS F
 PDW P
 PF5 F
@@ -3777,3 +3778,120 @@ _res_hetero_TLS.append
 ZN
 HEC
 # 
+loop_
+_res_halbs_ignore.id
+BR
+CL
+F
+IOD
+08T
+0JC
+0OD
+0TE
+202
+2T8
+4IR
+4KV
+5LN
+61C
+61D
+6BP
+6O0
+73M
+7GE
+8TH
+8TR
+8WV
+9QB
+9RU
+9TH
+A9J
+AF3
+ALF
+BE7
+BEF
+BF2
+BF4
+BFD
+BPT
+C2C
+C7P
+CFO
+CPT
+CUL
+D0X
+D7Z
+DAA
+DAE
+DAQ
+E3D
+E5O
+ELJ
+F6Q
+F7T
+FPO
+HG2
+HGI
+I2I
+I3M
+I83
+J0K
+J0N
+JR3
+KQB
+KYS
+KYT
+LCO
+LCP
+LN8
+MF4
+MGF
+MNQ
+N2N
+N2R
+N2S
+N2W
+NG8
+NMQ
+NXC
+O1N
+ONP
+ORS
+OS1
+OT1
+P3C
+PC4
+PCL
+PEJ
+PNQ
+PT7
+QLT
+R1N
+RAX
+RBN
+RHE
+RSW
+RU0
+RU7
+RUD
+RUH
+SFL
+SRX
+SVP
+SXC
+TBR
+TPT
+U0J
+VKZ
+VL2
+YPT
+YXX
+YXZ
+ZN0
+ZN5
+ZN6
+ZN7
+ZN8
+ZN9
+ZPT
+#
