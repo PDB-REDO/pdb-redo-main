@@ -1,3 +1,13 @@
+# Description: Finds all YASARA and density-fitness validation output files and PDB-REDO metadata 
+#              in a single directory and combines them into a single JSON file.
+# Version 2.02
+#
+# Changelog:
+# v2.02 Halogen bond data are now teken into account
+# v2.01 Bugfix in obtaining the occupancy from the validation files for new compounds.
+# v2.00 Removed dependence on a coordinate file to get atomic occupancies because this was not mmCIF compatible.
+# v1.00 Initial version written by Ida de Vries
+
 from logging import ERROR, error
 from pathlib import Path
 
@@ -10,7 +20,7 @@ class ligandvalidation:
     def __init__(self, input_path):
         self.input_path = input_path
 
-##### Set  up file system and files required #####
+##### Set up file system and files required #####
     
     def define_pdbid(versions_file):
         try:
@@ -57,6 +67,7 @@ class ligandvalidation:
             sys.exit('jsonfile_final could not be found, stopped running script')
         else: 
             jsonfile_final = jsonfile_final 
+            
 
         output_file = work_path/f'{pdb_id}_ligval.json'
 
@@ -147,7 +158,13 @@ class ligandvalidation:
             file_0cyc = json.loads(jsonfile_0cyc_open)
         except:
             sys.exit('error while reading and loading jsonfile_0cyc, stopped running script')
-
+        
+        #Initialise on unknown values
+        RSRfactor = None
+        RSCCS = None
+        EDIAm = None
+        OPIA = None
+        
         for element in file_0cyc:
             if element['pdb']['compID'] == pdb_compID and element['pdb']['seqNum'] == pdb_seqNum and element['pdb']['strandID'] == pdb_strandID:
                 try:
@@ -166,6 +183,7 @@ class ligandvalidation:
                     OPIA = float(round(element['OPIA'], 3))
                 except: 
                     OPIA = None
+            
                 
         density_fit = {}
         density_fit['real_space_Rfactor'] = RSRfactor
@@ -295,6 +313,22 @@ class ligandvalidation:
                 catpi_count = 0
                 catpi_strength = None
             return catpi_count, catpi_strength
+        
+        def get_xbond(interaction):
+            try:
+                xbond_count = sum([float(item.split(':')[1].split()[0]) for item in interaction if 'interactions with HalBS' in item])
+                if xbond_count != 0 :
+                    try:
+                        xbond_strength = float(round( sum([float(item.split(':')[1].split()[-1]) for item in interaction if 'interactions with HalBS' in item])/xbond_count , 3))
+                    except ValueError:
+                        xbond_strength = None
+                        raise f'Error in calculation xbond_strength for {ligand}'
+                else:
+                    xbond_strength = None
+            except ValueError:
+                xbond_count = 0
+                xbond_strength = None
+            return xbond_count, xbond_strength
 
         ### Get all the counts and strengths of the interactions that involve the ligand ###
         ligand_log = Path(ligand).read_text().split('Start')
@@ -303,6 +337,7 @@ class ligandvalidation:
         hydpho_count, hydpho_strength = get_hydrophobic([interaction.split('\n') for interaction in ligand_log if f'hydpho {var}' and f'End hydpho {var}' in interaction][0])
         pipi_count, pipi_strength = get_pipi([interaction.split('\n') for interaction in ligand_log if f'pipi {var}' and f'End pipi {var}' in interaction][0])
         catpi_count, catpi_strength = get_catpi([interaction.split('\n') for interaction in ligand_log if f'catpi {var}' and f'End catpi {var}' in interaction][0])
+        xbond_count, xbond_strength = get_xbond([interaction.split('\n') for interaction in ligand_log if f'xbond {var}' and f'End xbond {var}' in interaction][0])
 
         ### Make dictionary containing interaction details for ligand ori ###
         interactions = {}
@@ -319,6 +354,9 @@ class ligandvalidation:
         interactions['cation_pi_count'] = catpi_count
         interactions['cation_pi_strength'] = catpi_strength
         interactions['cation_pi_unit'] = 'knowledge_based_potential'
+        interactions['halogen_bond_count'] = xbond_count
+        interactions['halogen_bond_normality'] = xbond_strength
+        interactions['halogen_bond_unit'] = 'mean_HalBS'
         
         return interactions
       
@@ -360,7 +398,7 @@ class ligandvalidation:
             else:              
             ### Get data from PDB-REDO model (if added = True ) ###
                 ligand_validation['pdb_redo_model'] = {}
-                ligand_validation['pdb_redo_model']['refined_occupancy'] = self.get_added_ligand_occupancy(self, pdb_compID, pdb_seqNum, pdb_strandID, pdbfile_final)
+                ligand_validation['pdb_redo_model']['refined_occupancy'] = self.get_added_ligand_occupancy(self, ligand)
                 ligand_validation['pdb_redo_model']['density_fit'] = self.get_density_fit_redo(self, jsonfile_final, ligand)
                 ligand_validation['pdb_redo_model']['heat_of_formation'] = self.get_heat_of_formation(self, ligand, 1)
                 ligand_validation['pdb_redo_model']['interactions'] = self.get_interactions(self, ligand, 'new')

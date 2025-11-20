@@ -236,7 +236,7 @@ cp $VFILE $VFILE.tmp && jq '.software +={"loopwhole":{ "version":$version, "used
 set VERSION = `$TOOLS/loopwhole-validate | grep version | awk '{print $4}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"loopwhole-validate":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 52) findligand, optional 
+# 52) findandfit, optional 
 cp $VFILE $VFILE.tmp && jq '.software +={"findligand":{ "version":null, "used":false }}' $VFILE.tmp > $VFILE
 
 # 53) cif-merge, always
@@ -266,7 +266,7 @@ if ($?BLASTP) then
 endif
 
 # 59) carbivore
-set VERSION = `$TOOLS/carbivore | head -n 1 | awk '{print $4}'`
+set VERSION = `$TOOLS/carbivore --version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"carbivore":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
 # 61) Gemmi
@@ -280,14 +280,10 @@ cp $VFILE $VFILE.tmp && jq '.software +={"mmCQL":{ "version":$version, "used":tr
 # 63) tortoize
 set VERSION = `$TOOLS/tortoize --version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"tortoize":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
-
-# 64) molrep
-set VERSION = `molrep -h | grep Vers | awk '{print $3}' | tr -d ';'`
-cp $VFILE $VFILE.tmp && jq '.software +={"molrep":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
-
-# 65) coot proper
-set VERSION = `coot --version | head -n 1`
-cp $VFILE $VFILE.tmp && jq '.software +={"COOT":{ "version":$version, "used":false }}' --arg version "$VERSION" $VFILE.tmp > $VFILE
+# 
+# # 64) molrep
+# set VERSION = `molrep -h | grep Vers | awk '{print $3}' | tr -d ';'`
+# cp $VFILE $VFILE.tmp && jq '.software +={"molrep":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
 # 66) cif-grep
 set VERSION = `$TOOLS/cif-grep --version | awk '{print $3}'`

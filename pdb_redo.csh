@@ -89,6 +89,7 @@ if ($#argv == 0 || $1 == "-h" || $1 == "--help") then
   echo "--nofixdmc    : do not add missing backbone atoms"
   echo "--nopepflip   : no peptide flips are performed"
   echo "--noscbuild   : side chains will not be rebuilt"
+  echo "--noscflip    : no side chain flipping based on WHAT_CHECK output"
   echo "--nocentrifuge: waters with poor density will not be deleted"
   echo "--norebuild   : all rebuilding steps are skipped"
   echo "--nosugarbuild: no (re)building of carbohydrates"
@@ -151,8 +152,29 @@ endif
 # - DNATCO         Validation of nucleic acid models
 #
 ####################################################### Change log #######################################################
-set VERSION = '8.17' #PDB-REDO version
+set VERSION = '8.20' #PDB-REDO version
 
+# Version 8.20:
+# - Halogen bond information is now also added to the ligand validation JSON.
+#
+# Version 8.19:
+# - Added a new mmCIF-based carbivore.
+# - Bugfixes in carbonanza and more verbose output.
+# - Added a running time limit for mtzdmp to catch infinite loops.
+# - Reenabled occupancy refinement after ligand fitting. 
+# - Reenabled validation of newly fitted compounds. 
+# - Updated the format for new ligand listing to allow multi-character asym_ids.
+#
+# Version 8.18:
+# - Added ligand fitting with findNfit.
+# - Added workaround for extractor bug for TLS groups definad as 'all'.
+# - Stopped doing rigid-body refinement.
+# - Due to an update in extractor, microheterogeneity is now support but not yet in a fully automated way.
+# - Bugfix in cif2cif to deal with many more data loops before thain main reflection loop.
+# - Bugfix in ligval2json that deal with residues that cannot be found (due to renumbering).
+# - Major bigfixes in the pdb2cif conversion, with models from users and in the rebuilding cycle.
+# - What_todo now considers the no-rebuild list from extractor. 
+#
 # Version 8.17:
 # - Added carbohydrate validation using privateer.
 # - Bugfix for nqa_isotropic mode.
@@ -593,8 +615,6 @@ set VERSION = '8.17' #PDB-REDO version
 # - Better handling for missing high resolution data.
 # - Changed the way data.txt is written to avoid race conditions.
 #
-# A complete changelog is available from the PDB-REDO website
-#
 echo " "
 if ($1 == "--local" || $1 == "--server") then
   set PDBID = `mktemp -u XXXX`
@@ -744,6 +764,7 @@ set DOLSQ        = 0      #By default do not use least-squares scaling of Fo and
 set DOTASER      = 0
 set DOPEPFLIP    = 1
 set DOSCBUILD    = 1
+set DOSCFLIP     = 1     #Flip side chains based on what_check output by default.
 set DOCENTRIFUGE = 1
 set DOREBUILD    = 1
 set DOSUGARBUILD = 1 
@@ -831,9 +852,9 @@ if ($1 == "--local") then
 endif
 
 #Write out header
-echo " __   __   __     __   ___  __   __    _       __ " | tee -a $LOG
-echo "|__) |  \ |__) _ |__) |__  |  \ /  \  (_)   /|  / " | tee -a $LOG
-echo "|    |__/ |__)   |  \ |___ |__/ \__/  (_) o  | /  " | tee -a $LOG
+echo " __   __   __     __   ___  __   __    _    __   __  " | tee -a $LOG
+echo "|__) |  \ |__) _ |__) |__  |  \ /  \  (_)    _) / /\ " | tee -a $LOG
+echo "|    |__/ |__)   |  \ |___ |__/ \__/  (_) o /__ \/_/ " | tee -a $LOG
 echo " "
 
 #Font for the header
@@ -1002,9 +1023,9 @@ foreach ARG ($*)
   else if ($ARG == --nojelly) then
     set DOJELLY = 0
     echo "-Not doing jelly-body refinement" | tee -a $LOG
-  else if ($ARG == --norb) then
-    set DORB = 0
-    echo "-Not doing rigid-body refinement" | tee -a $LOG    
+#   else if ($ARG == --norb) then
+#     set DORB = 0
+#     echo "-Not doing rigid-body refinement" | tee -a $LOG    
   else if ($ARG == --noharmonic) then
     set DOHARMONIC = 0
     echo "-Not using harmonic restraints for small datasets" | tee -a $LOG
@@ -1165,10 +1186,10 @@ if ("$PARAMS" != "") then
     set DOJELLY = 0
     echo " o Not doing jelly-body refinement" | tee -a $LOG
   endif
-  if (`jq .norb $PARAMS` == 1 || `jq .norb $PARAMS` == true) then
-    set DORB = 0
-    echo " o Not doing rigid-body refinement" | tee -a $LOG    
-  endif
+#   if (`jq .norb $PARAMS` == 1 || `jq .norb $PARAMS` == true) then
+#     set DORB = 0
+#     echo " o Not doing rigid-body refinement" | tee -a $LOG    
+#   endif
   if (`jq .noharmonic $PARAMS` == 1 || `jq .noharmonic $PARAMS` == true) then
     set DOHARMONIC = 0
     echo " o Not using harmonic restraints for small datasets" | tee -a $LOG
@@ -1788,8 +1809,11 @@ if ($NOSF == 0) then
     #If supplied, analyse the input reflection file and convert it to mmCIF if needed...
     if ($MTZIN != "") then
       if (-e $MTZIN) then
-        #Dump the MTZ file. PROGRAM: mtzdump
-        mtzdmp $MTZIN > $WORKDIR/cifcreate.log
+        limit cputime 2m
+          #Dump the MTZ file. PROGRAM: mtzdump
+          mtzdmp $MTZIN > $WORKDIR/cifcreate.log
+        limit cputime unlimited
+        
         if ($status) then
           #Give error message
           if ($USEMTZ == 1) then
@@ -2137,8 +2161,14 @@ $WORKDIR/${PDBID}_carbonanza.cif  >& $WORKDIR/carbonanza.log
 
 #Do we have a new model; then copy the new model
 if (-e $WORKDIR/${PDBID}_carbonanza.cif) then
-  if (`grep -c 'Generating LINK record' $WORKDIR/carbonanza.log` > 0) then
-    echo "   * Carbonanza added `grep -c 'Generating LINK record' $WORKDIR/carbonanza.log` new LINKs"   | tee -a $LOG
+  if (`grep -c 'Creating struct_conn record' $WORKDIR/carbonanza.log` > 0) then
+    echo "   * Carbonanza added `grep -c 'Creating struct_conn record' $WORKDIR/carbonanza.log` new linkages"   | tee -a $LOG
+  endif 
+  if (`grep -c 'Creating new entity' $WORKDIR/carbonanza.log` > 0) then
+    echo "   * Carbonanza created `grep -c 'Creating new entity' $WORKDIR/carbonanza.log` new carbohydrate trees"   | tee -a $LOG
+  endif 
+  if (`grep -c 'Deleting' $WORKDIR/carbonanza.log` > 0) then
+    echo "   * Carbonanza deleted `grep -c 'Deleting' $WORKDIR/carbonanza.log` superflous oxygen atoms"   | tee -a $LOG
   endif 
 else  
   #Copy the old model
@@ -2438,6 +2468,11 @@ if (! -z $WORKDIR/$PDBID.tls) then
   if ($NTLSIN > 200) then
     echo "   * Unfortunately, these are too many for Refmacat. They will not be used." | tee -a $LOG
     rm $WORKDIR/$PDBID.tls
+  endif
+  #Remove junk line from defining TLS group as 'all'
+  if ($NTLSIN == 1) then
+    cp $WORKDIR/$PDBID.tls $WORKDIR/$PDBID.bak
+    grep -v 'RANGE FROM 0  TO 0' $WORKDIR/$PDBID.bak > $WORKDIR/$PDBID.tls
   endif
 else
   echo " o TLS groups extracted: 0" | tee -a $LOG
@@ -3324,7 +3359,7 @@ echo "Deposition year      : $DYEAR"     | tee -a $LOG
 
 
 ############################################# Recalculation of R and R-free ##############################################
-molrepped:
+# molrepped:
 
 echo " " | tee -a $LOG
 echo " " | tee -a $LOG
@@ -3520,8 +3555,8 @@ if ($status || `grep -c 'Error: Fatal error. Cannot continue' $WORKDIR/${PDBID}_
       echo " " | tee -a $LOG
       echo "FATAL ERROR!" | tee -a $LOG
       echo "------------" | tee -a $LOG
-      echo "Input coordinates have unknown compound(s): `grep 'Error: Provide restraint cif file(s) for' $WORKDIR/${PDBID}_0cyc$ISTLS.log | cut -c 42-`" | tee -a $LOG
-      echo "Please provide a restraint file for this compound." | tee -a $LOG
+      echo "Input coordinates have unknown compounds or compounds with non-standard atom names: `grep 'Error: Provide restraint cif file(s) for' $WORKDIR/${PDBID}_0cyc$ISTLS.log | cut -c 42-`" | tee -a $LOG
+      echo "Please provide a restraint file for these compounds." | tee -a $LOG
 
       #Write out WHY_NOT mesage
       echo "COMMENT: refmac: unknown compound" >> $WHYNOT
@@ -3923,146 +3958,146 @@ eof
 endif
 
 
-#Check the fit with the data. If it is poor, try rigid-body refinement.
-if ($DORB == 1 && $RFACT != "NA" &&`$TOOLS/fitr $RFACT $RFREE $RCAL $RFCAL` == 0) then #R-factors do not fit, try rigid-body refinement.
-
-  #Create a backup
-  cp $WORKDIR/${PDBID}_0cyc.log $WORKDIR/${PDBID}_0cycv5.log
-
-  #Do $RBCYCLE cycles of rigid body refinement
-  echo " o Problem reproducing the R-factors"  | tee -a $LOG
-  echo -n "-Trying rigid-body refinement " | tee -a $LOG
-
-
-  #Set up NCS
-  if ($STRICTNCS == 1) then
-    set RBNCS = ncsconstraints
-  endif
-
-  #Run Refmac
-  refmacat \
-  --keep_entities \
-  XYZIN $WORKDIR/${PDBID}_c2f.cif \
-  XYZOUT $WORKDIR/${PDBID}_refmacrb.cif \
-  HKLIN $WORKDIR/$PDBID.mtz \
-  HKLOUT $WORKDIR/${PDBID}_refmacrb.mtz \
-  $LIBLIN \
-  $SCATLIN \
-<<eof > $WORKDIR/${PDBID}_rb.log
-    $SCATTERCMD
-    make check NONE
-    make hydrogen $HYDROGEN hout NO peptide NO cispeptide YES -
-      ssbridge $SSBOND $RSYMM $SUGAR $CONNECTIVITY link NO
-    refi type RIGID resi MLKF meth CGMAT
-    $REFIRES
-    mode rigid
-    rigid ncycle $RBCYCLE
-    scal type $SOLVENT $SCALING
-  #  scale lsscale function lsq
-    solvent YES
-    $MASKPAR
-    $LOWMEM
-    weight $WGTSIG MATRIX 0.5
-    monitor MEDIUM torsion 10.0 distance 10.0 angle 10.0 plane 10.0 -
-      chiral 10.0  bfactor 10.0 bsphere  10.0 rbond 10.0 ncsr  10.0
-    $RBNCS
-    $TWIN
-    labin  FP=FP SIGFP=SIGFP FREE=FREE $PHASES $ANOMCOEF
-    $ANOMCMD
-    pdbout copy remarks 200 280 350
-    pdbout copy expdta
-    NOHARVEST
-    END
-eof
-  if ($status) then
-    echo " " | tee -a $LOG
-    echo " o Problem with refmac. Cannot continue." | tee -a $LOG
-    echo "COMMENT: refmac: error in rigid-body refinement" >> $WHYNOT
-    echo "PDB-REDO,$PDBID"                                 >> $WHYNOT
-    if ($SERVER == 1) then
-      #Write out status files
-      touch $STDIR/stoppingProcess.txt
-      touch $STDIR/processStopped.txt
-    endif
-    cd $BASE
-    exit(1)
-  endif
-
-  #Now do another restrained refinement run to include the TLS contribution (if needed)
-  if ($ORITLS == 1) then
-    refmacat \
-    --keep_entities \
-    XYZIN  $WORKDIR/${PDBID}_refmacrb.cif \
-    XYZOUT $WORKDIR/${PDBID}_0cyc.cif \
-    HKLIN  $WORKDIR/$PDBID.mtz \
-    HKLOUT $WORKDIR/${PDBID}_0cyc.mtz \
-    $TLSLIN \
-    $LIBLIN \
-    $SCATLIN \
-<<eof > $WORKDIR/${PDBID}_0cyc.log
-      $SCATTERCMD
-      make check NONE
-      make hydrogen $HYDROGEN hout NO peptide NO cispeptide YES -
-        ssbridge $SSBOND $RSYMM $SUGAR $CONNECTIVITY link NO
-      refi type REST resi MLKF meth CGMAT bref MIXE
-      $REFIRES
-      ncyc 0
-      tlsd waters exclude
-      scal type $SOLVENT $SCALING
- #     scale lsscale function lsq
-      solvent YES
-      $MASKPAR
-      $LOWMEM
-      weight $WGTSIG MATRIX 0.5
-      monitor MEDIUM torsion 10.0 distance 10.0 angle 10.0 plane 10.0 -
-        chiral 10.0  bfactor 10.0 bsphere  10.0 rbond 10.0 ncsr  10.0
-      $NCSTYPE
-      $NCSALIGN
-      $NCSNEIGH
-      $NCSSTRICT
-      $TWIN
-      labin FP=FP SIGFP=SIGFP FREE=FREE $PHASES $ANOMCOEF
-      $ANOMCMD
-      pdbout copy remarks 200 280 350
-      pdbout copy expdta
-      NOHARVEST
-      END
-eof
-    if ($status) then
-      echo " " | tee -a $LOG
-      echo " o Problem with refmac. Cannot continue." | tee -a $LOG
-      echo "COMMENT: refmac: error in initial R-free calculation" >> $WHYNOT
-      echo "PDB-REDO,$PDBID"                                      >> $WHYNOT
-      if ($SERVER == 1) then
-        #Write out status files
-        touch $STDIR/stoppingProcess.txt
-        touch $STDIR/processStopped.txt
-      endif
-      cd $BASE
-      exit(1)
-    endif
-
-    #Evaluate log file
-    set RCAL  = `grep -B 2 'Final results' $WORKDIR/${PDBID}_0cyc.log | head -n 1 | awk '{print $2}'`
-    set RFCAL = `grep -B 2 'Final results' $WORKDIR/${PDBID}_0cyc.log | head -n 1 | awk '{print $3}'`
-  else
-    #Evaluate log file from the rigid body refinement
-    set RCAL  = `grep -B 2 'Final results' $WORKDIR/${PDBID}_rb.log | head -n 1 | awk '{print $2}'`
-    set RFCAL = `grep -B 2 'Final results' $WORKDIR/${PDBID}_rb.log | head -n 1 | awk '{print $3}'`
-
-    #Use the MTZ file from the rigid-body refinement
-    cp $WORKDIR/${PDBID}_refmacrb.mtz $WORKDIR/${PDBID}_0cyc.mtz
-  endif
-
-  #Fill the line with the R-free value
-  echo "(R-free = $RFCAL)" | tee -a $LOG
-
-  #Copy files so that the rigid-body refined model is used
-  cp $WORKDIR/${PDBID}_refmacrb.cif $WORKDIR/${PDBID}_0cyc.cif
-  
-else  
-  cp $WORKDIR/${PDBID}_0cyc.cif $WORKDIR/${PDBID}_refmacrb.cif
-endif
+# #Check the fit with the data. If it is poor, try rigid-body refinement.
+# if ($DORB == 1 && $RFACT != "NA" &&`$TOOLS/fitr $RFACT $RFREE $RCAL $RFCAL` == 0) then #R-factors do not fit, try rigid-body refinement.
+# 
+#   #Create a backup
+#   cp $WORKDIR/${PDBID}_0cyc.log $WORKDIR/${PDBID}_0cycv5.log
+# 
+#   #Do $RBCYCLE cycles of rigid body refinement
+#   echo " o Problem reproducing the R-factors"  | tee -a $LOG
+#   echo -n "-Trying rigid-body refinement " | tee -a $LOG
+# 
+# 
+#   #Set up NCS
+#   if ($STRICTNCS == 1) then
+#     set RBNCS = ncsconstraints
+#   endif
+# 
+#   #Run Refmac
+#   refmacat \
+#   --keep_entities \
+#   XYZIN $WORKDIR/${PDBID}_c2f.cif \
+#   XYZOUT $WORKDIR/${PDBID}_refmacrb.cif \
+#   HKLIN $WORKDIR/$PDBID.mtz \
+#   HKLOUT $WORKDIR/${PDBID}_refmacrb.mtz \
+#   $LIBLIN \
+#   $SCATLIN \
+# <<eof > $WORKDIR/${PDBID}_rb.log
+#     $SCATTERCMD
+#     make check NONE
+#     make hydrogen $HYDROGEN hout NO peptide NO cispeptide YES -
+#       ssbridge $SSBOND $RSYMM $SUGAR $CONNECTIVITY link NO
+#     refi type RIGID resi MLKF meth CGMAT
+#     $REFIRES
+#     mode rigid
+#     rigid ncycle $RBCYCLE
+#     scal type $SOLVENT $SCALING
+#   #  scale lsscale function lsq
+#     solvent YES
+#     $MASKPAR
+#     $LOWMEM
+#     weight $WGTSIG MATRIX 0.5
+#     monitor MEDIUM torsion 10.0 distance 10.0 angle 10.0 plane 10.0 -
+#       chiral 10.0  bfactor 10.0 bsphere  10.0 rbond 10.0 ncsr  10.0
+#     $RBNCS
+#     $TWIN
+#     labin  FP=FP SIGFP=SIGFP FREE=FREE $PHASES $ANOMCOEF
+#     $ANOMCMD
+#     pdbout copy remarks 200 280 350
+#     pdbout copy expdta
+#     NOHARVEST
+#     END
+# eof
+#   if ($status) then
+#     echo " " | tee -a $LOG
+#     echo " o Problem with refmac. Cannot continue." | tee -a $LOG
+#     echo "COMMENT: refmac: error in rigid-body refinement" >> $WHYNOT
+#     echo "PDB-REDO,$PDBID"                                 >> $WHYNOT
+#     if ($SERVER == 1) then
+#       #Write out status files
+#       touch $STDIR/stoppingProcess.txt
+#       touch $STDIR/processStopped.txt
+#     endif
+#     cd $BASE
+#     exit(1)
+#   endif
+# 
+#   #Now do another restrained refinement run to include the TLS contribution (if needed)
+#   if ($ORITLS == 1) then
+#     refmacat \
+#     --keep_entities \
+#     XYZIN  $WORKDIR/${PDBID}_refmacrb.cif \
+#     XYZOUT $WORKDIR/${PDBID}_0cyc.cif \
+#     HKLIN  $WORKDIR/$PDBID.mtz \
+#     HKLOUT $WORKDIR/${PDBID}_0cyc.mtz \
+#     $TLSLIN \
+#     $LIBLIN \
+#     $SCATLIN \
+# <<eof > $WORKDIR/${PDBID}_0cyc.log
+#       $SCATTERCMD
+#       make check NONE
+#       make hydrogen $HYDROGEN hout NO peptide NO cispeptide YES -
+#         ssbridge $SSBOND $RSYMM $SUGAR $CONNECTIVITY link NO
+#       refi type REST resi MLKF meth CGMAT bref MIXE
+#       $REFIRES
+#       ncyc 0
+#       tlsd waters exclude
+#       scal type $SOLVENT $SCALING
+#  #     scale lsscale function lsq
+#       solvent YES
+#       $MASKPAR
+#       $LOWMEM
+#       weight $WGTSIG MATRIX 0.5
+#       monitor MEDIUM torsion 10.0 distance 10.0 angle 10.0 plane 10.0 -
+#         chiral 10.0  bfactor 10.0 bsphere  10.0 rbond 10.0 ncsr  10.0
+#       $NCSTYPE
+#       $NCSALIGN
+#       $NCSNEIGH
+#       $NCSSTRICT
+#       $TWIN
+#       labin FP=FP SIGFP=SIGFP FREE=FREE $PHASES $ANOMCOEF
+#       $ANOMCMD
+#       pdbout copy remarks 200 280 350
+#       pdbout copy expdta
+#       NOHARVEST
+#       END
+# eof
+#     if ($status) then
+#       echo " " | tee -a $LOG
+#       echo " o Problem with refmac. Cannot continue." | tee -a $LOG
+#       echo "COMMENT: refmac: error in initial R-free calculation" >> $WHYNOT
+#       echo "PDB-REDO,$PDBID"                                      >> $WHYNOT
+#       if ($SERVER == 1) then
+#         #Write out status files
+#         touch $STDIR/stoppingProcess.txt
+#         touch $STDIR/processStopped.txt
+#       endif
+#       cd $BASE
+#       exit(1)
+#     endif
+# 
+#     #Evaluate log file
+#     set RCAL  = `grep -B 2 'Final results' $WORKDIR/${PDBID}_0cyc.log | head -n 1 | awk '{print $2}'`
+#     set RFCAL = `grep -B 2 'Final results' $WORKDIR/${PDBID}_0cyc.log | head -n 1 | awk '{print $3}'`
+#   else
+#     #Evaluate log file from the rigid body refinement
+#     set RCAL  = `grep -B 2 'Final results' $WORKDIR/${PDBID}_rb.log | head -n 1 | awk '{print $2}'`
+#     set RFCAL = `grep -B 2 'Final results' $WORKDIR/${PDBID}_rb.log | head -n 1 | awk '{print $3}'`
+# 
+#     #Use the MTZ file from the rigid-body refinement
+#     cp $WORKDIR/${PDBID}_refmacrb.mtz $WORKDIR/${PDBID}_0cyc.mtz
+#   endif
+# 
+#   #Fill the line with the R-free value
+#   echo "(R-free = $RFCAL)" | tee -a $LOG
+# 
+#   #Copy files so that the rigid-body refined model is used
+#   cp $WORKDIR/${PDBID}_refmacrb.cif $WORKDIR/${PDBID}_0cyc.cif
+#   
+# else  
+#   cp $WORKDIR/${PDBID}_0cyc.cif $WORKDIR/${PDBID}_refmacrb.cif
+# endif
 
 #Check the fit with the data. If it is poor, try short TLS-refinement
 if (`$TOOLS/fitr $RFACT $RFREE $RCAL $RFCAL` == 0) then
@@ -4081,7 +4116,7 @@ if (`$TOOLS/fitr $RFACT $RFREE $RCAL $RFCAL` == 0) then
     #Run Refmac with 5 TLS cycles
     refmacat \
     --keep_entities \
-    XYZIN  $WORKDIR/${PDBID}_refmacrb.cif \
+    XYZIN  $WORKDIR/${PDBID}_c2f.cif \
     XYZOUT $WORKDIR/${PDBID}_TLS0cyc.cif \
     HKLIN  $WORKDIR/$PDBID.mtz \
     HKLOUT $WORKDIR/${PDBID}_0cyc.mtz \
@@ -4120,7 +4155,7 @@ if (`$TOOLS/fitr $RFACT $RFREE $RCAL $RFCAL` == 0) then
       kill $TOOLS/pdb_redo.refmac
       END
 eof
-    if ($status) then
+    if (! -e $WORKDIR/${PDBID}_TLS0cyc.cif) then
       if (`grep -a -c 'Program terminated by user' $WORKDIR/${PDBID}_0cyc.log` != 0) then
         #Problems with the TLS group definition.
         mv $WORKDIR/${PDBID}.tls $WORKDIR/${PDBID}.notls
@@ -4149,6 +4184,7 @@ eof
       echo " o TLS refinement was unstable. Original TLS group selection will not be used." | tee -a $LOG
       echo "COMMENT: Problem with TLS tensor re-evaluation" >> $DEBUG
       echo "PDB-REDO,$PDBID"                                >> $DEBUG
+
     else
       #Strip ANISOU records and clean up
       cp $WORKDIR/${PDBID}_TLS0cyc.cif $WORKDIR/${PDBID}_0cyc.cif
@@ -4159,12 +4195,12 @@ eof
       set PRCAL1 = $RCAL
       set PRCAL2 = `grep -B 2 'Final results' $WORKDIR/${PDBID}_0cyc.log | head -n 1 | awk '{print $2}'`
 
-      #Discard the TLS results if they are poor.
-      if (`echo $PRCAL1 $PRCAL2 | awk '{if ($1 - $2 < 0) {print "rb"} else {print "tls"}}'` == 'rb') then
-        cp $WORKDIR/${PDBID}_refmacrb.cif $WORKDIR/${PDBID}_0cyc.cif
-        cp $WORKDIR/${PDBID}_0cycv5.mtz $WORKDIR/${PDBID}_0cyc.mtz
-        cp $WORKDIR/${PDBID}_0cycv5.log $WORKDIR/${PDBID}_0cyc.log
-      endif
+#       #Discard the TLS results if they are poor.
+#       if (`echo $PRCAL1 $PRCAL2 | awk '{if ($1 - $2 < 0) {print "rb"} else {print "tls"}}'` == 'rb') then
+#         cp $WORKDIR/${PDBID}_refmacrb.cif $WORKDIR/${PDBID}_0cyc.cif
+#         cp $WORKDIR/${PDBID}_0cycv5.mtz $WORKDIR/${PDBID}_0cyc.mtz
+#         cp $WORKDIR/${PDBID}_0cycv5.log $WORKDIR/${PDBID}_0cyc.log
+#       endif
 
       #Evaluate log file (dirty)
       set RCAL  = `grep -B 2 'Final results' $WORKDIR/${PDBID}_0cyc.log | head -n 1 | awk '{print $2}'`
@@ -4713,7 +4749,7 @@ if ($CHIRERR != 0) then
   echo " " | tee -a $LOG
   echo " " | tee -a $LOG
   echo "****** Chirality validation ******" | tee -a $LOG
-  echo "-Found $CHIRERR chirality problems" | tee -a $LOG
+  echo "-Found $CHIRERR chirality outliers" | tee -a $LOG
   echo " o Running chiron"   | tee -a $LOG
 
   #Do the fixes and report
@@ -6621,16 +6657,19 @@ if (`ls $WORKDIR/${PDBID}_refmac????.mtz | wc -l` == 0 ) then
   exit(1)
 else
   #Check whether there are results for each weight
+  set FWEIGHTS = ""
   foreach WGT (`echo $WEIGHTS`)
     if (! -e $WORKDIR/${PDBID}_refmac$WGT.mtz) then
       echo " o Problem with Refmacat with weight $WGT." | tee -a $LOG
       echo "COMMENT: refmac: error in re-refinement" >> $DEBUG
       echo "PDB-REDO,$PDBID"                         >> $DEBUG
+    else
+      set FWEIGHTS = `echo "$FWEIGHTS $WGT"`
     endif
   end
   
   #Filter the weights
-  set WEIGHTS = `ls $WORKDIR/${PDBID}_refmac????.mtz | xargs -n 1 basename | cut -c 12-15 | sort -n`
+  set WEIGHTS = `echo $FWEIGHTS`
 endif  
 
 
@@ -7898,7 +7937,8 @@ eof
         grep -H WRNG $WORKDIR/${PDBID}_pepflip.msg >> $DEBUGB
       endif
     endif
-
+    
+    
     #Count the number of flips
     set NBBFLIP = `grep -A 80 'List of peptides' $WORKDIR/${PDBID}_pepflip.log | grep -c -E '^.[0-9]'`
 
@@ -8082,7 +8122,7 @@ eof
 ######################################## Flip side chains to optimise hydrogen bonding ###################################
 
   #Always do this if there is protein
-  if ($GOT_PROT == T) then
+  if ($GOT_PROT == T && DOSCFLIP == 1) then
 
     echo "-Validation-based rebuilding" | tee -a $LOG
 
@@ -8140,7 +8180,7 @@ eof
         DSSPfilename = $DSSPFILE
 
         #Output pdb
-        PDBOutputFilename = "$WORKDIR/${PDBID}_built.pdb"
+        PDBOutputFilename = "$WORKDIR/${PDBID}_scflip.pdb"
 
         #selection of the side chains to rebuild/flip
         #list of single residues:
@@ -8234,7 +8274,7 @@ eof
       #Force rebuilding seriously problematic side chains
       if ( (`grep -c '#Residues to be rebuilt forcefully' $WORKDIR/$PDBID.todo` != 0) || ($SCBUILT == 0 && -e $WORKDIR/homol/${PDBID}_sc_rebuild.txt) ) then
         set CHIRLIST = `grep -A 1 '#Residues to be rebuilt forcefully' $WORKDIR/$PDBID.todo | tail -n 1`
-        cp $WORKDIR/${PDBID}_built.pdb $WORKDIR/${PDBID}_chirfix_in.pdb
+        cp $WORKDIR/${PDBID}_scflip.pdb $WORKDIR/${PDBID}_chirfix_in.pdb
 
         #Add notify the user
         if (`grep -c '#Residues to be rebuilt forcefully' $WORKDIR/$PDBID.todo` != 0) then
@@ -8281,7 +8321,7 @@ eof
         DSSPfilename = $DSSPFILE
 
         #Output pdb
-        PDBOutputFilename = "$WORKDIR/${PDBID}_built.pdb"
+        PDBOutputFilename = "$WORKDIR/${PDBID}_scfix.pdb"
 
         #selection of the side chains to rebuild/flip
         #list of single residues:
@@ -8372,6 +8412,9 @@ eof
         if ($NCHIRFX > 0) then
           set BUILT = 1
         endif
+      else
+        #Just copy over the file
+        cp $WORKDIR/${PDBID}_scflip.pdb $WORKDIR/${PDBID}_scfix.pdb
       endif
 
       #Clean up
@@ -8384,16 +8427,16 @@ eof
       echo "COMMENT: WHAT_CHECK failed in rebuilding step." >> $DEBUG
       echo "PDB-REDO,$PDBID"                                >> $DEBUG
       cd $WORKDIR
-      cp $WORKDIR/${PDBID}_scbuild.pdb $WORKDIR/${PDBID}_built.pdb
+      cp $WORKDIR/${PDBID}_scbuild.pdb $WORKDIR/${PDBID}_scfix.pdb
     endif
   else
     #Fill in some of the blanks
     set NSCFLIP = 0
-    cp $WORKDIR/${PDBID}_scbuild.pdb $WORKDIR/${PDBID}_built.pdb
+    cp $WORKDIR/${PDBID}_scbuild.pdb $WORKDIR/${PDBID}_scfix.pdb
   endif
 
   #Correct the total number of deleted waters
-  @ NWATDEL = (`echo "SELECT label_atom_id FROM atom_site WHERE label_comp_id = 'HOH';" | /zata/tools/mmCQL $WORKDIR/cache.cif | grep -c O` - `grep '^[AH][TE][OT]' $WORKDIR/${PDBID}_built.pdb | grep -c HOH`)
+  @ NWATDEL = (`echo "SELECT label_atom_id FROM atom_site WHERE label_comp_id = 'HOH';" | /zata/tools/mmCQL $WORKDIR/cache.cif | grep -c O` - `grep '^[AH][TE][OT]' $WORKDIR/${PDBID}_scfix.pdb | grep -c HOH`)
   
   #Present a rebuilding summary.
   echo " " | tee -a $LOG
@@ -8411,8 +8454,18 @@ endif
 #Calculate the total number of chirality fixes
 @ NCHIRFX = ($CHIFIX + $NCHIRFX)
 
+################################################## End of PDB-format rebuilding ##########################################
+#Convert model back to mmCIF
+$TOOLS/pdb2cif $WORKDIR/${PDBID}_scfix.pdb $WORKDIR/${PDBID}_built.cif >>& $WORKDIR/pdb2cif.log
+if (! -e $WORKDIR/${PDBID}_built.cif) then
+  echo "-Cannot convert the rebuilt model back to mmCIF" | tee -a $LOG
+  echo " o Falling back to the model from re-refinement" | tee -a $LOG
+  set BUILT = 0
+  cp $WORKDIR/${PDBID}_besttls.cif $WORKDIR/${PDBID}_built.cif
+endif
+
 ################################################## (Re)build carbohydrates ###############################################
-if ($DOSUGARBUILD == 2 && $GOT_PROT == 'T') then
+if ($DOSUGARBUILD == 1 && $GOT_PROT == 'T') then
 
   #Start reporting
   echo " " | tee -a $LOG
@@ -8420,26 +8473,22 @@ if ($DOSUGARBUILD == 2 && $GOT_PROT == 'T') then
   echo "****** Carbohydrate (re)building ******" | tee -a $LOG
 
   #Make a backup
-  cp $WORKDIR/${PDBID}_built.pdb $WORKDIR/${PDBID}_carb.pdb
+  cp $WORKDIR/${PDBID}_built.cif $WORKDIR/${PDBID}_carb.cif
   
   #Run carbivore
   cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.carbivore.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-  cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.COOT.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
   
   echo "-Running carbivore" | tee -a $LOG
   
   $TOOLS/carbivore -v \
-  -fasta $WORKDIR/$PDBID.fasta \
-  -pdb $WORKDIR/${PDBID}_carb.pdb \
-  -mtz $WORKDIR/${PDBID}_loopwhole.mtz \
-  -cache-pdb $WORKDIR/cache.pdb \
-  -output-name $PDBID \
-  -tools $TOOLS \
-  -output-dir $WORKDIR/sugar >& $WORKDIR/carbivore.log
+  --map-weight 40 \
+  $WORKDIR/${PDBID}_loopwhole.mtz \
+  $WORKDIR/${PDBID}_carb.cif \
+  $WORKDIR/${PDBID}_carbivore.cif >& $WORKDIR/carbivore.log
   
   #Copy over the output and anaylse results
-  if (-e $WORKDIR/sugar/${PDBID}_carbivore.pdb) then
-    cp $WORKDIR/sugar/${PDBID}_carbivore.pdb $WORKDIR/${PDBID}_built.pdb
+  if (-e $WORKDIR/${PDBID}_carbivore.cif) then
+    cp $WORKDIR/${PDBID}_carbivore.cif $WORKDIR/${PDBID}_built.cif
     
     #Analyse results
     echo " o Carbohydrate tree processing results" | tee -a $LOG
@@ -8452,7 +8501,7 @@ if ($DOSUGARBUILD == 2 && $GOT_PROT == 'T') then
     echo "   * Overlapping waters deleted   : " `grep 'waters deleted:'        $WORKDIR/carbivore.log | awk '{print $5}'` | tee -a $LOG
     
     #Correct number of deleted waters
-    @ NWATDEL = (`echo "SELECT label_atom_id FROM atom_site WHERE label_comp_id = 'HOH';" | /zata/tools/mmCQL $WORKDIR/cache.cif | grep -c O` - `grep '^[AH][TE][OT]' $WORKDIR/${PDBID}_built.pdb | grep -c HOH`)
+    @ NWATDEL = (`echo "SELECT label_atom_id FROM atom_site WHERE label_comp_id = 'HOH';" | /zata/tools/mmCQL $WORKDIR/cache.cif | grep -c O` - `echo "SELECT label_atom_id FROM atom_site WHERE label_comp_id = 'HOH';" | /zata/tools/mmCQL $WORKDIR/${PDBID}_built.cif | grep -c O`)
   else
     #Report error
     echo " o Carbivore failed, no carbohydrates (rebuilt)" | tee -a $LOG
@@ -8471,18 +8520,10 @@ if ($SCREEN == 1 || $FITLIGANDS == 1) then
   echo " " | tee -a $LOG
   echo "****** Screen mode and ligand fitting preparation ******" | tee -a $LOG
   
-  #Convert model back to mmCIF
-  $TOOLS/pdb2cif $WORKDIR/${PDBID}_built.pdb $WORKDIR/${PDBID}_built_0cycin.cif >>& $WORKDIR/pdb2cif.log
-  if (! -e $WORKDIR/${PDBID}_built_0cycin.cif) then
-    echo "-Cannot convert the rebuilt model back to mmCIF" | tee -a $LOG
-    echo " o Falling back to the model from  re-refinement" | tee -a $LOG
-    set BUILT = 0
-    cp $WORKDIR/${PDBID}_besttls.cif $WORKDIR/${PDBID}_built_0cycin.cif
-  endif
 
   #Run Refmac 0cyc to update the maps
   echo "-Running Refmacat to update the maps" | tee -a $LOG
-  cp $WORKDIR/${PDBID}_built.pdb $WORKDIR/${PDBID}_built_0cycin.pdb
+  cp $WORKDIR/${PDBID}_built.cif $WORKDIR/${PDBID}_built_0cycin.cif
 
   refmacat \
   --keep_entities \
@@ -8565,20 +8606,20 @@ if ($FITLIGANDS == 1) then
     echo " o R-free too high, model not yet suited for ligand fitting" | tee -a $LOG
   else
     #Try to fit ligands
-    set RESNUM = -999
-    set CHID   = 'z'
-    set NLIG_LIST = 
-    set LIGSIGMA = 1.05
+    set NBLOBS = 10
+#     set CHID   = 'z'
+#     set NLIG_LIST = 
+#     set LIGSIGMA = 1.05
   
-    cp $WORKDIR/${PDBID}_built.pdb $WORKDIR/${PDBID}_ligfit.pdb
+    cp $WORKDIR/${PDBID}_built.cif $WORKDIR/${PDBID}_ligfit.cif
 
     #Loop over all ligands to prepare for fitting
     foreach LIG (`echo $FITLIGS`)
   
       #Clean a bit if needed
-      if (-e $WORKDIR/fitted-ligand-0-0.pdb) then
-        rm $WORKDIR/fitted-ligand*.pdb
-      endif
+#       if (-e $WORKDIR/fitted-ligand-0-0.pdb) then
+#         rm $WORKDIR/fitted-ligand*.pdb
+#       endif
   
       #Report
       echo "-Preparing for ligand $LIG" | tee -a $LOG
@@ -8603,30 +8644,30 @@ if ($FITLIGANDS == 1) then
     
       #Continue if there is a restraint file
       if ($LIGREST != 'none') then
-        echo "Making idealised coordinates for $LIG" >> $WORKDIR/ligfit.log
-    
-        #Make idealised model of ligand. The empty line is needed!
-        cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.libcheck.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-        
-        libcheck << eof >> $WORKDIR/ligfit.log
-          N    
-          file_l $LIGREST
-          mon $LIG
-          nodist y
-          coor y
-        
-eof
-      
-        #Remove hydrogens from idealised coordinates
-        if (! -e $WORKDIR/libcheck_$LIG.pdb) then
-          echo " o Could not generate coordinates for $LIG. Skipping ligand." | tee -a $LOG
-          continue  
-        else  
-          grep -v -E '.{76} H' $WORKDIR/libcheck_$LIG.pdb > libcheck_noH_$LIG.pdb
-        endif
+#         echo "Making idealised coordinates for $LIG" >> $WORKDIR/ligfit.log
+#     
+#         #Make idealised model of ligand. The empty line is needed!
+#         cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.libcheck.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
+#         
+#         libcheck << eof >> $WORKDIR/ligfit.log
+#           N    
+#           file_l $LIGREST
+#           mon $LIG
+#           nodist y
+#           coor y
+#         
+# eof
+#       
+#         #Remove hydrogens from idealised coordinates
+#         if (! -e $WORKDIR/libcheck_$LIG.pdb) then
+#           echo " o Could not generate coordinates for $LIG. Skipping ligand." | tee -a $LOG
+#           continue  
+#         else  
+#           grep -v -E '.{76} H' $WORKDIR/libcheck_$LIG.pdb > libcheck_noH_$LIG.pdb
+#         endif
 
         #Get liggand sizes in number of heavy atoms
-        echo `grep -c '^ATOM' libcheck_noH_$LIG.pdb` $LIG $LIGREST >> $WORKDIR/liglist.txt
+        echo `echo "SELECT number_atoms_nh FROM chem_comp WHERE id = '$LIG';" | $TOOLS/mmCQL $LIGREST | tail -n 1` $LIG $LIGREST >> $WORKDIR/liglist.txt
       else
         #Give error message
         echo " o There are no restraints available for $LIG. Please, provide a restraint file." | tee -a $LOG
@@ -8645,163 +8686,180 @@ eof
       set LIGREST = `grep "$LIG " $WORKDIR/liglist.txt | awk '{print $3}'`
    
       #Do an initial fit of the ligand
-      cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.findligand.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
+      cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.findandfit.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
       
       echo "Trying to fit $LIG" >> $WORKDIR/ligfit.log
-      findligand \
-      --pdbin $WORKDIR/${PDBID}_ligfit.pdb \
-      --hklin $WORKDIR/${PDBID}_loopwhole.mtz \
-      --f FWT --phi PHWT \
-      --flexible \
-      --dictionary $LIGREST \
-      --samples 100 \
-      --sigma $LIGSIGMA \
-      $WORKDIR/libcheck_noH_$LIG.pdb >> $WORKDIR/ligfit.log
+      findandfit -v \
+      --mtzin $WORKDIR/${PDBID}_built.mtz \
+      --xyzin $WORKDIR/${PDBID}_ligfit.cif \
+      --restraint-dict $LIGREST \
+      --lig $LIG \
+      --name ${PDBID}_${LIG} \
+      --samplingrate 1.5 \
+      --growingpercentile 0.95 \
+      --nrblobs $NBLOBS \
+      --output ${PDBID}_$LIG.cif \
+      --outputpath $WORKDIR/ligfit >& $WORKDIR/ligfit_$LIG.log
+      
+      #Append the log file
+      set TFITTED = `grep -c Placed $WORKDIR/ligfit_$LIG.log`
+      cat $WORKDIR/ligfit_$LIG.log >> $WORKDIR/ligfit.log
       
       #Was a ligand added?
-      if (`find $WORKDIR -name "fitted-ligand-?-?.pdb" | wc -l` > 0) then
+      if (-e $WORKDIR/ligfit/${PDBID}_${LIG}_afterjigglefit_allligs_inclwaters.cif && $TFITTED > 0) then
         #Report
-        echo "Found `ls $WORKDIR/fitted-ligand*.pdb | wc -l` candidates for $LIG" >> $WORKDIR/ligfit.log
-        echo " o Found `ls $WORKDIR/fitted-ligand*.pdb | wc -l` candidates for $LIG" | tee -a $LOG
-        echo " o Refinement and validation of candidates" | tee -a $LOG
-
-        #Loop over candidates
-        foreach FITTED (`ls $WORKDIR/fitted-ligand*.pdb`)
-         
-          @ FITCOUNT = ($FITCOUNT + 1)
-          #Do some renumbering
-          while (`grep -c "z$RESNUM" $WORKDIR/${PDBID}_ligfit.pdb` > 0)
-            @ RESNUM = ($RESNUM + 1)
-          end
-          grep '^HETATM' $FITTED | sed "s/A   1/z$RESNUM/g" > $WORKDIR/append.pdb
-         
-          #Append the ligand
-          cat $WORKDIR/${PDBID}_ligfit.pdb $WORKDIR/append.pdb | grep -v '^END' > $WORKDIR/newlig.pdb
-          #Remove offending waters
-          if ($NWATER > 0 ) then 
-            echo "Removing waters for candidate $RESNUM" >> $WORKDIR/ligfit.log
-            cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.centrifuge.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-            
-            $TOOLS/centrifuge \
-            <<eof >& $WORKDIR/centrifuge_lig.log
-              #Settings
-              InputPDB = "$WORKDIR/newlig.pdb"
-              PDBOutputFilename = "$WORKDIR/newlig_dry.pdb"
-              MessageFilename = "$WORKDIR/newlig_centrifuge.msg"
-              XMLOutputFilename = "$WORKDIR/newlig_centrifuge.xml"
-      
-              #residue names that represent waters. Default HOH WAT H2O EAU
-              WaterNames = HOH
-              #Reject waters with negative density (i.e. only clashing waters)
-              WaterRejectionThreshold = 0.00
-              #If true, everything except Dummies and recognised Waters is placed in the density map, default False
-              PlaceNonSolventInDensity = true
-              #Colon separated list of water ids which won't be affected by the methods of centrifuge
-              UnaffectedWaterList = "$H2O_KEEP"
-              #InputMap or here: input mtz
-              InputMTZ = "$WORKDIR/${PDBID}_loopwhole.mtz"
-              FWTLabel = FWT
-              PHIWTLabel = PHWT
-              SpaceGroup = "$SPACEGROUP"
-              XtalCell = "$AAXIS $BAXIS $CAXIS $ALPHA $BETA $GAMMA"
-              DictionaryFilename = "$TOOLS/AArotaSS.XYZ"
-              SymmetryFilename = "$CLIBD/syminfo.lib"
-
-              #type of method used to determine the density fit
-              CFitTarget::Type = accelerated
-              UniformAtomBFactor = "$BBUILD"
-              UniformAtomRadius = 0.74
-              UseAtomicB = True
-
-              #Factor with which to invert the density of placed atoms
-              AntiBumpFactor = 2.0
-
-              #Program information
-              ProgramName = centrifuge
-              MessageLevel = 6
-              AbortLevel = 8
-              KeepPDBheaderInfo = true
-              StoreOriginalChainAndSegID = true
-              SelectByOrigChainID = true
-              KeepSideChain = true
-              KeepFragmentLongerThan = 0
-              TrustWaters = false
-              RemoveBasedOnDensity = true
-eof
-            cat $WORKDIR/centrifuge_lig.log >> $WORKDIR/ligfit.log
-          else
-            cp $WORKDIR/newlig.pdb $WORKDIR/newlig_dry.pdb
-          endif
-
-          #Real-space refine against 2mFo-DFc
-          echo "Refining candidate $RESNUM" >> $WORKDIR/ligfit.log
-          cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software."coot-mini-rsr".used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-          
-          echo "coot-mini-rsr --pdbin $WORKDIR/newlig_dry.pdb --hklin $WORKDIR/${PDBID}_loopwhole.mtz --f FWT --phi PHWT --pdbout $WORKDIR/newlig_refi.pdb --chain-id z --residues-around $RESNUM --weight 40 --rama --torsions --no-trans-peptide-restraints --correlations --dictin $LIGREST"  >> $WORKDIR/ligfit.log
-
-          coot-mini-rsr \
-          --pdbin $WORKDIR/newlig_dry.pdb \
-          --hklin $WORKDIR/${PDBID}_loopwhole.mtz \
-          --f FWT --phi PHWT \
-          --pdbout $WORKDIR/newlig_refi.pdb \
-          --chain-id z --residues-around $RESNUM \
-          --weight 40 \
-          --rama --torsions --no-trans-peptide-restraints \
-          --correlations \
-          --dictin $LIGREST > $WORKDIR/ligref.log
-          
-          #Calculate density fit on updated maps
-          $TOOLS/density-fitness \
-          --use-auth-ids \
-          --sampling-rate 1.5 \
-          --hklin $PDBID.mtz \
-          $SFTYPE \
-          --recalc \
-          --xyzin $WORKDIR/newlig_refi.pdb \
-          -o $WORKDIR/density_$RESNUM.eds \
-          $DICTCMD >>& $WORKDIR/density_ligfit.log 
+        cp $WORKDIR/ligfit/${PDBID}_${LIG}_afterjigglefit_allligs_inclwaters.cif $WORKDIR/${PDBID}_ligfit.cif
+        echo " o Fitted $TFITTED copies of $LIG" | tee -a $LOG
         
-          #Save the scores
-          grep "${CHID}_${RESNUM}[[:space:]]" $WORKDIR/density_$RESNUM.eds >> $WORKDIR/ligfit.scores         
-
-          #Decide whether to keep the ligand (remove ligands with too low correlation, too low RSCC, too low EDIAm, or too high RSR)
-          if (`grep -A 40 'Residue Correlation Table:' $WORKDIR/ligref.log | grep $LIG | grep -e "$RESNUM" | awk '{if ($4 < 0.53) {print "reject"} else {print "accept"}}'` == "accept" && `grep "${CHID}_${RESNUM}[[:space:]]" $WORKDIR/density_$RESNUM.eds | awk '{if ($2 < 0.21 && (($4 > 0.76 && $6 > 0.50) || ($4 + $6 > 1.1) || ($2 < 0.185 && ($4 + $6 > 1.0)))) {print 1} else {print 0}}'` == 1) then
-                
-            #keep the new ligand
-            set BUILT = 1
-            cp $WORKDIR/newlig_refi.pdb $WORKDIR/${PDBID}_ligfit.pdb
-            
-            #Append it to the validation list
-            echo "   * Accepting candidate $FITCOUNT" | tee -a $LOG
-            if (`echo $NLIG_LIST | grep -c ':'` == 0) then
-              set NLIG_LIST = ':'
-            endif
-            set NLIG_LIST = "${NLIG_LIST}$CHID$RESNUM :"  
+        #Setup downstream analysis
+        foreach ASYM (`grep Placed $WORKDIR/ligfit_$LIG.log | awk '{print $4}'`)
+          #Occupancy refinement
+          @ OCCREF = ($OCCREF + 1)
+          echo "occupancy group id $OCCREF chain $ASYM residue 1" >> $WORKDIR/occupancy_cmd.refmac
           
-            #Occupancy refine the new ligand
-            @ OCCREF = ($OCCREF + 1)
-            echo "occupancy group id $OCCREF chain $CHID residue $RESNUM" >> $WORKDIR/occupancy_cmd.refmac
-
-            #Increase counter
-            @ RESNUM   = ($RESNUM + 1)
-            @ ACCEPTED = ($ACCEPTED + 1)
-          
-          else
-            #Keep using the previous model
-            echo "   * Rejecting candidate $FITCOUNT" | tee -a $LOG
+          #Ligand validation (new format for multi-character asym_id)
+          if (`echo $NLIG_LIST | grep -c ':'` == 0) then
+            set NLIG_LIST = ':'
           endif
+          set NLIG_LIST = "${NLIG_LIST}${ASYM}_1:"  
+          
+        end
+        #Loop over candidates
+
+         
+          @ FITCOUNT = ($FITCOUNT + $TFITTED)
+#           #Do some renumbering
+#           while (`grep -c "z$RESNUM" $WORKDIR/${PDBID}_ligfit.pdb` > 0)
+#             @ RESNUM = ($RESNUM + 1)
+#           end
+#           grep '^HETATM' $FITTED | sed "s/A   1/z$RESNUM/g" > $WORKDIR/append.pdb
+#          
+#           #Append the ligand
+#           cat $WORKDIR/${PDBID}_ligfit.pdb $WORKDIR/append.pdb | grep -v '^END' > $WORKDIR/newlig.pdb
+#           #Remove offending waters
+#           if ($NWATER > 0 ) then 
+#             echo "Removing waters for candidate $RESNUM" >> $WORKDIR/ligfit.log
+#             cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.centrifuge.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
+#             
+#             $TOOLS/centrifuge \
+#             <<eof >& $WORKDIR/centrifuge_lig.log
+#               #Settings
+#               InputPDB = "$WORKDIR/newlig.pdb"
+#               PDBOutputFilename = "$WORKDIR/newlig_dry.pdb"
+#               MessageFilename = "$WORKDIR/newlig_centrifuge.msg"
+#               XMLOutputFilename = "$WORKDIR/newlig_centrifuge.xml"
+#       
+#               #residue names that represent waters. Default HOH WAT H2O EAU
+#               WaterNames = HOH
+#               #Reject waters with negative density (i.e. only clashing waters)
+#               WaterRejectionThreshold = 0.00
+#               #If true, everything except Dummies and recognised Waters is placed in the density map, default False
+#               PlaceNonSolventInDensity = true
+#               #Colon separated list of water ids which won't be affected by the methods of centrifuge
+#               UnaffectedWaterList = "$H2O_KEEP"
+#               #InputMap or here: input mtz
+#               InputMTZ = "$WORKDIR/${PDBID}_loopwhole.mtz"
+#               FWTLabel = FWT
+#               PHIWTLabel = PHWT
+#               SpaceGroup = "$SPACEGROUP"
+#               XtalCell = "$AAXIS $BAXIS $CAXIS $ALPHA $BETA $GAMMA"
+#               DictionaryFilename = "$TOOLS/AArotaSS.XYZ"
+#               SymmetryFilename = "$CLIBD/syminfo.lib"
+# 
+#               #type of method used to determine the density fit
+#               CFitTarget::Type = accelerated
+#               UniformAtomBFactor = "$BBUILD"
+#               UniformAtomRadius = 0.74
+#               UseAtomicB = True
+# 
+#               #Factor with which to invert the density of placed atoms
+#               AntiBumpFactor = 2.0
+# 
+#               #Program information
+#               ProgramName = centrifuge
+#               MessageLevel = 6
+#               AbortLevel = 8
+#               KeepPDBheaderInfo = true
+#               StoreOriginalChainAndSegID = true
+#               SelectByOrigChainID = true
+#               KeepSideChain = true
+#               KeepFragmentLongerThan = 0
+#               TrustWaters = false
+#               RemoveBasedOnDensity = true
+# eof
+#             cat $WORKDIR/centrifuge_lig.log >> $WORKDIR/ligfit.log
+#           else
+#             cp $WORKDIR/newlig.pdb $WORKDIR/newlig_dry.pdb
+# #           endif
+# 
+#           #Real-space refine against 2mFo-DFc
+#           echo "Refining candidate $RESNUM" >> $WORKDIR/ligfit.log
+#           cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software."coot-mini-rsr".used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
+#           
+#           echo "coot-mini-rsr --pdbin $WORKDIR/newlig_dry.pdb --hklin $WORKDIR/${PDBID}_loopwhole.mtz --f FWT --phi PHWT --pdbout $WORKDIR/newlig_refi.pdb --chain-id z --residues-around $RESNUM --weight 40 --rama --torsions --no-trans-peptide-restraints --correlations --dictin $LIGREST"  >> $WORKDIR/ligfit.log
+# 
+#           coot-mini-rsr \
+#           --pdbin $WORKDIR/newlig_dry.pdb \
+#           --hklin $WORKDIR/${PDBID}_loopwhole.mtz \
+#           --f FWT --phi PHWT \
+#           --pdbout $WORKDIR/newlig_refi.pdb \
+#           --chain-id z --residues-around $RESNUM \
+#           --weight 40 \
+#           --rama --torsions --no-trans-peptide-restraints \
+#           --correlations \
+#           --dictin $LIGREST > $WORKDIR/ligref.log
+#           
+#           #Calculate density fit on updated maps
+#           $TOOLS/density-fitness \
+#           --use-auth-ids \
+#           --sampling-rate 1.5 \
+#           --hklin $PDBID.mtz \
+#           $SFTYPE \
+#           --recalc \
+#           --xyzin $WORKDIR/newlig_refi.pdb \
+#           -o $WORKDIR/density_$RESNUM.eds \
+#           $DICTCMD >>& $WORKDIR/density_ligfit.log 
+#         
+#           #Save the scores
+#           grep "${CHID}_${RESNUM}[[:space:]]" $WORKDIR/density_$RESNUM.eds >> $WORKDIR/ligfit.scores         
+
+#           #Decide whether to keep the ligand (remove ligands with too low correlation, too low RSCC, too low EDIAm, or too high RSR)
+#           if (`grep -A 40 'Residue Correlation Table:' $WORKDIR/ligref.log | grep $LIG | grep -e "$RESNUM" | awk '{if ($4 < 0.53) {print "reject"} else {print "accept"}}'` == "accept" && `grep "${CHID}_${RESNUM}[[:space:]]" $WORKDIR/density_$RESNUM.eds | awk '{if ($2 < 0.21 && (($4 > 0.76 && $6 > 0.50) || ($4 + $6 > 1.1) || ($2 < 0.185 && ($4 + $6 > 1.0)))) {print 1} else {print 0}}'` == 1) then
+#                 
+#             #keep the new ligand
+#             set BUILT = 1
+#             cp $WORKDIR/newlig_refi.pdb $WORKDIR/${PDBID}_ligfit.pdb
+#             
+#             #Append it to the validation list
+#             echo "   * Accepting candidate $FITCOUNT" | tee -a $LOG
+#             if (`echo $NLIG_LIST | grep -c ':'` == 0) then
+#               set NLIG_LIST = ':'
+#             endif
+#             set NLIG_LIST = "${NLIG_LIST}$CHID$RESNUM :"  
+#           
+#             #Occupancy refine the new ligand
+#             @ OCCREF = ($OCCREF + 1)
+#             echo "occupancy group id $OCCREF chain $CHID residue $RESNUM" >> $WORKDIR/occupancy_cmd.refmac
+# 
+#             #Increase counter
+#             @ RESNUM   = ($RESNUM + 1)
+#             @ ACCEPTED = ($ACCEPTED + 1)
+#           
+#           else
+#             #Keep using the previous model
+#             echo "   * Rejecting candidate $FITCOUNT" | tee -a $LOG
+#           endif
           
           #Consolidate log files
-          mv  $WORKDIR/ligfit.log $WORKDIR/ligfit.old
-          cat $WORKDIR/ligfit.old $WORKDIR/ligref.log > $WORKDIR/ligfit.log
-        end
+#           mv  $WORKDIR/ligfit.log $WORKDIR/ligfit.old
+#           cat $WORKDIR/ligfit.old $WORKDIR/ligref.log > $WORKDIR/ligfit.log
       else
         echo " o Could not find a good place to fit $LIG" | tee -a $LOG
       endif        
      
     end
 
-    cp $WORKDIR/${PDBID}_ligfit.pdb $WORKDIR/${PDBID}_built.pdb
+    cp $WORKDIR/${PDBID}_ligfit.cif $WORKDIR/${PDBID}_built.cif
   
     #Is occupancy refinement needed?
     if (-e $WORKDIR/occupancy_cmd.refmac) then
@@ -8822,8 +8880,6 @@ echo " " | tee -a $LOG
 echo "****** Final refinement ******" | tee -a $LOG
 
 #Skip the final refinement if the model was not rebuilt
-unbuilt:
-
 if ($BUILT == 0) then
 
   #Report
@@ -8851,14 +8907,6 @@ if ($BUILT == 0) then
   set LLFFIN     = `grep -B 2 'Final results' $WORKDIR/${PDBID}_final.log | head -n 1 | awk '{print $6}'`
 
 else
-  #Convert model back to mmCIF
-  $TOOLS/pdb2cif $WORKDIR/${PDBID}_built.pdb $WORKDIR/${PDBID}_built.cif >>& $WORKDIR/pdb2cif.log
-  if (! -e $WORKDIR/${PDBID}_built.cif) then
-    echo "-Cannot convert the rebuilt model back to mmCIF" | tee -a $LOG
-    echo " o Falling back to the model from  re-refinement" | tee -a $LOG
-    set BUILT = 0
-    goto unbuilt
-  endif
    
   #Update restraints
   #Nucleic acid restraints(only if the previous run had no problems)
@@ -10236,11 +10284,11 @@ if (`echo $NLIG_LIST | grep -c ':'` != 0) then
     foreach LIG (`echo $NLIG_LIST | sed 's/:/ /g'`)
 
       #Specify the residue
-      set RESNUM = `echo $LIG | cut -c 2-`
-      set CHID   = `echo $LIG | cut -c 1`
+      set RESNUM = `echo $LIG | cut -d '_' -f 2`
+      set CHID   = `echo $LIG | cut -d '_' -f 1`
 
       #Return label for job launching
-ligvalrunning:
+ligvalsolorunning:
 
       #Only launch new jobs when the number of cores is not exceeded
       #Strangely direct line counting on the jobs output doesn't work, so a temporary file is needed
@@ -10250,14 +10298,15 @@ ligvalrunning:
 
         echo " o Validating residue $CHID $RESNUM" | tee -a $LOG
 
+        #There is a hanging underscore in the file name. That is because there could be an insertion code for ligands.
         $YASARA -txt $TOOLS/ligval_solo.mcr \
         "newpdb='$WORKDIR/${PDBID}_final.cif'" \
         "resnum='$RESNUM'" \
-        "chid='$CHID'" > $WORKDIR/ligval_$LIG.log &
+        "chid='$CHID'" > $WORKDIR/ligval_${LIG}_.log &
       else
         #Wait a bit to start again
         sleep 2
-        goto ligvalrunning
+        goto ligvalsolorunning
       endif
     end
 
@@ -10266,18 +10315,39 @@ ligvalrunning:
   endif
 endif
 
-#Remove empty files
+#Remove empty files or add occupancies and halogen bond information
 echo "-Checking validation results" | tee -a $LOG
 foreach LIGLOG ( `find $WORKDIR -name "ligval_*.log"` )
-    set CHID   = `echo $LIGLOG:t | cut -d '_' -f 2`
-    set RESNUM = `echo $LIGLOG:t | cut -d '_' -f 3`
+  set CHID   = `echo $LIGLOG:t | cut -d '_' -f 2`
+  set RESNUM = `echo $LIGLOG:t | cut -d '_' -f 3`
   if (`grep -c 'End catpi new' $LIGLOG` == 0) then
     echo " o Validation of $CHID $RESNUM failed" | tee -a $LOG
     rm $LIGLOG
   else
-    #Add the final occupancies
-    set OCCUPANCY = `echo "SELECT occupancy FROM atom_site WHERE auth_asym_id = '$CHID' AND auth_seq_id = '$RESNUM';" | $TOOLS/mmCQL $WORKDIR/${PDBID}_final.cif | grep -v occupancy | awk '{SUM = SUM +$1} END {printf "%1.2f", SUM/NR}'`
-    echo "Final average occupancy: $OCCUPANCY" >> $LIGLOG
+    #Catch residues that have gone missing (by renumbering or being integrated in a carbohydrate tree)
+    if (`echo "SELECT occupancy FROM atom_site WHERE auth_asym_id = '$CHID' AND auth_seq_id = '$RESNUM';" | $TOOLS/mmCQL $WORKDIR/${PDBID}_final.cif | wc -l` > 1) then 
+      #Add the halogen bond information
+      if (-e $WORKDIR/halbs_0cyc.log) then
+        echo " " >> $LIGLOG
+        echo "Start xbond ori" >> $LIGLOG
+        grep "$RESNUM,$CHID," halbs_0cyc.log | tr ',' ' ' | awk '{print "  to Residue",$15,$17,$16,": 1 interactions with HalBS",$25}' >> $LIGLOG
+        echo "End xbond ori" >> $LIGLOG
+        echo  " " >> $LIGLOG
+      endif
+      if (-e $WORKDIR/halbs_final.log) then
+        echo " " >> $LIGLOG
+        echo "Start xbond new" >> $LIGLOG
+        grep "$RESNUM,$CHID," halbs_final.log | tr ',' ' ' | awk '{print "  to Residue",$15,$17,$16,": 1 interactions with HalBS",$25}' >> $LIGLOG
+        echo "End xbond new" >> $LIGLOG
+        echo  " " >> $LIGLOG
+      endif
+      #Add the final occupancies
+      set OCCUPANCY = `echo "SELECT occupancy FROM atom_site WHERE auth_asym_id = '$CHID' AND auth_seq_id = '$RESNUM';" | $TOOLS/mmCQL $WORKDIR/${PDBID}_final.cif | grep -v occupancy | awk '{SUM = SUM +$1} END {printf "%1.2f", SUM/NR}'`
+      echo "Final average occupancy: $OCCUPANCY" >> $LIGLOG
+    else
+      echo " o Residue $CHID $RESNUM was renumbered or removed" | tee -a $LOG
+      rm $LIGLOG
+    endif
   endif
 end
 
@@ -10314,12 +10384,12 @@ if (`find $WORKDIR -name "ligval_*.log" | wc -l` > 0) then
     
       #Extract YASARA results
       #Shifts
-      set NSHIFT = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | ."\""atoms_shifted_more_than_0.5A"\""" | awk '{printf "%.0f", $1}'`
-      set RMSD   = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .all_atom_rmsd_in_A" | awk '{printf "%5.3f", $1}'`
+      set NSHIFT = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | ."\""atoms_shifted_more_than_0.5A"\""" | awk '{printf "%.0f", $1}'`
+      set RMSD   = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .all_atom_rmsd_in_A" | awk '{printf "%5.3f", $1}'`
     
       #Heat of formation
-      set EFORMO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.heat_of_formation.energy" | sed 's/null/NA/'`
-      set EFORMF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.heat_of_formation.energy" | sed 's/null/NA/'`  
+      set EFORMO = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.heat_of_formation.energy" | sed 's/null/NA/'`
+      set EFORMF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.heat_of_formation.energy" | sed 's/null/NA/'`  
       #Make pretty
       if ($EFORMO != NA) then
         set EFORMO = `echo $EFORMO | awk '{printf "%5.1f", $1}'`
@@ -10329,32 +10399,39 @@ if (`find $WORKDIR -name "ligval_*.log" | wc -l` > 0) then
       endif    
 
       #Hydrogen bonds
-      set EHBOO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.H_bonds_strength" | awk '{printf "%5.1f", $1}'`
-      set EHBOF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.H_bonds_strength" | awk '{printf "%5.1f", $1}'`  
-      set NHBOO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.H_bonds_count" | awk '{printf "%.0f", $1}'`
-      set NHBOF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.H_bonds_count" | awk '{printf "%.0f", $1}'`  
+      set EHBOO = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.H_bonds_strength" | awk '{printf "%5.1f", $1}'`
+      set EHBOF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.H_bonds_strength" | awk '{printf "%5.1f", $1}'`  
+      set NHBOO = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.H_bonds_count" | awk '{printf "%.0f", $1}'`
+      set NHBOF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.H_bonds_count" | awk '{printf "%.0f", $1}'`  
 
       #Bumps
-      set NBUMPO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.bumps_count" | awk '{printf "%.0f", $1}'`
-      set NBUMPF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.bumps_count" | awk '{printf "%.0f", $1}'`  
+      set NBUMPO = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.bumps_count" | awk '{printf "%.0f", $1}'`
+      set NBUMPF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.bumps_count" | awk '{printf "%.0f", $1}'`  
 
       #Hydrophobic contacts and strength
-      set SHYPHO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.hydrophobic_strength" | awk '{printf "%5.3f", $1}'`
-      set SHYPHF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.hydrophobic_strength" | awk '{printf "%5.3f", $1}'`  
-      set NHYPHO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.hydrophobic_count" | awk '{printf "%.0f", $1}'`
-      set NHYPHF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.hydrophobic_count" | awk '{printf "%.0f", $1}'`  
+      set SHYPHO = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.hydrophobic_strength" | awk '{printf "%5.3f", $1}'`
+      set SHYPHF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.hydrophobic_strength" | awk '{printf "%5.3f", $1}'`  
+      set NHYPHO = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.hydrophobic_count" | awk '{printf "%.0f", $1}'`
+      set NHYPHF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.hydrophobic_count" | awk '{printf "%.0f", $1}'`  
 
       #pi-pi contacts and strength
-      set SPIPIO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.pi_pi_strength" | awk '{printf "%5.3f", $1}'`
-      set SPIPIF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.pi_pi_strength" | awk '{printf "%5.3f", $1}'`  
-      set NPIPIO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.pi_pi_count" | awk '{printf "%.0f", $1}'`
-      set NPIPIF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.pi_pi_count" | awk '{printf "%.0f", $1}'`  
+      set SPIPIO = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.pi_pi_strength" | awk '{printf "%5.3f", $1}'`
+      set SPIPIF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.pi_pi_strength" | awk '{printf "%5.3f", $1}'`  
+      set NPIPIO = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.pi_pi_count" | awk '{printf "%.0f", $1}'`
+      set NPIPIF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.pi_pi_count" | awk '{printf "%.0f", $1}'`  
 
       #Cation-pi contacts and strength
-      set SCATPO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.cation_pi_strength" | awk '{printf "%5.3f", $1}'`
-      set SCATPF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.cation_pi_strength" | awk '{printf "%5.3f", $1}'`  
-      set NCATPO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.cation_pi_count" | awk '{printf "%.0f", $1}'`
-      set NCATPF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.cation_pi_count" | awk '{printf "%.0f", $1}'` 
+      set SCATPO = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.cation_pi_strength" | awk '{printf "%5.3f", $1}'`
+      set SCATPF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.cation_pi_strength" | awk '{printf "%5.3f", $1}'`  
+      set NCATPO = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.cation_pi_count" | awk '{printf "%.0f", $1}'`
+      set NCATPF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.cation_pi_count" | awk '{printf "%.0f", $1}'` 
+      
+      #Halogen bonds and mean HalBS
+      set MHALBSO = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.halogen_bond_normality" | awk '{printf "%5.3f", $1}'`
+      set MHALBSF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.halogen_bond_normality" | awk '{printf "%5.3f", $1}'`  
+      set NXBONDO = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.halogen_bond_count" | awk '{printf "%.0f", $1}'`
+      set NXBONDF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.halogen_bond_count" | awk '{printf "%.0f", $1}'` 
+      
   
       #Give summary
       echo " "                                                                  | tee -a $LOG 
@@ -10377,6 +10454,8 @@ if (`find $WORKDIR -name "ligval_*.log" | wc -l` > 0) then
         echo "Pi-Pi interaction strength        : $SPIPIO  $SPIPIF"  | tee -a $LOG 
         echo "Number of cation-Pi interactions  : $NCATPO  $NCATPF"  | tee -a $LOG 
         echo "Cation-Pi interaction strength    : $SCATPO  $SCATPF"  | tee -a $LOG 
+        echo "Number of halogen bonds           : $NXBONDO  $NXBONDF"  | tee -a $LOG 
+        echo "Mean halogen bond score           : $MHALBSO  $MHALBSF"  | tee -a $LOG 
         echo " "                                                     | tee -a $LOG 
         echo "Atoms shifted more than ${SHIFTCO}A     : $NSHIFT"     | tee -a $LOG 
         echo "All atom RMSD for residue (A)     : ${RMSD}"           | tee -a $LOG 
@@ -10390,30 +10469,23 @@ endif
 foreach LIG (`echo $NLIG_LIST | sed 's/:/ /g'`)
 
   #Specify the residue
-  set TRESNUM = `echo $LIG | cut -c 2-`
-  if (`echo $TRESNUM | grep -c "[[:alpha:]]"` != 0) then
-    set RESNUM = `echo -n $TRESNUM | head -c -1`
-    set INS    = `echo -n $TRESNUM | tail -c 1`
-  else  
-    set RESNUM = $TRESNUM
-    set INS    = ""
-  endif
-  set CHID   = `echo $LIG | cut -c 1`
-  set PDBLIG = `echo "$CHID $RESNUM" | awk '{printf "%s%4d\n", $1, $2}' | sed 's/ /_/g'`
-  set RESID  = `grep '^[AH][TE][OT][MA]' $WORKDIR/${PDBID}_final.pdb | cut -c 18-27 | sed 's/ /_/g' | grep $PDBLIG | head -n 1 | cut -c 1-3 | sed 's/_/ /g'`
+  set RESNUM = `echo $LIG | cut -d '_' -f 2`
+  set CHID   = `echo $LIG | cut -d '_' -f 1`
+  set INS    = ""
+  set RESID  = `echo "SELECT auth_comp_id FROM atom_site WHERE auth_asym_id = '$CHID' AND auth_seq_id = $RESNUM;" | $TOOLS/mmCQL $WORKDIR/${PDBID}_final.cif | tail -n 1`
 
   #Get real-space values
-  set LIGRSRF  = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.density_fit.real_space_Rfactor" | awk '{printf "%5.3f", $1}'` 
-  set LIGCCF   = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.density_fit.real_space_correlation" | awk '{printf "%5.3f", $1}'` 
-  set LIGEDIAF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.density_fit.EDIAm_density_fit" | awk '{printf "%5.3f", $1}'` 
-  set LIGOPIAF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.density_fit.OPIA_density_coverage" | awk '{printf "%5.1f", $1}'`     
+  set LIGRSRF  = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.density_fit.real_space_Rfactor" | awk '{printf "%5.3f", $1}'` 
+  set LIGCCF   = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.density_fit.real_space_correlation" | awk '{printf "%5.3f", $1}'` 
+  set LIGEDIAF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.density_fit.EDIAm_density_fit" | awk '{printf "%5.3f", $1}'` 
+  set LIGOPIAF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.density_fit.OPIA_density_coverage" | awk '{printf "%5.1f", $1}'`     
     
   #Get occupancy
-  set LIGOCC = `grep '^[AH][TE][OT][MA]' $WORKDIR/${PDBID}_final.pdb | grep $RESID | grep $CHID | grep -e "$RESNUM" | head -n 1 | cut -c 57-60` 
-
+  set LIGOCC = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.refined_occupancy" | awk '{printf "%4.2f", $1}'`
+  
   #Extract YASARA results
   #Heat of formation
-  set EFORMF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.heat_of_formation.energy" | sed 's/null/NA/'`  
+  set EFORMF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.heat_of_formation.energy" | sed 's/null/NA/'`  
   
   #Make pretty
   if ($EFORMF != NA) then
@@ -10421,24 +10493,28 @@ foreach LIG (`echo $NLIG_LIST | sed 's/:/ /g'`)
   endif    
 
   #Hydrogen bonds
-  set EHBOF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.H_bonds_strength" | awk '{printf "%5.1f", $1}'`  
-  set NHBOF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.H_bonds_count" | awk '{printf "%.0f", $1}'`  
+  set EHBOF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.H_bonds_strength" | awk '{printf "%5.1f", $1}'`  
+  set NHBOF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.H_bonds_count" | awk '{printf "%.0f", $1}'`  
 
   #Bumps
-  set NBUMPO = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.bumps_count" | awk '{printf "%.0f", $1}'`
+  set NBUMPO = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.bumps_count" | awk '{printf "%.0f", $1}'`
 
   #Hydrophobic contacts and strength
-  set SHYPHF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.hydrophobic_strength" | awk '{printf "%5.3f", $1}'`  
-  set NHYPHF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.hydrophobic_count" | awk '{printf "%.0f", $1}'`  
+  set SHYPHF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.hydrophobic_strength" | awk '{printf "%5.3f", $1}'`  
+  set NHYPHF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.hydrophobic_count" | awk '{printf "%.0f", $1}'`  
 
   #pi-pi contacts and strength
-  set SPIPIF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.pi_pi_strength" | awk '{printf "%5.3f", $1}'`  
-  set NPIPIF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.pi_pi_count" | awk '{printf "%.0f", $1}'`  
+  set SPIPIF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.pi_pi_strength" | awk '{printf "%5.3f", $1}'`  
+  set NPIPIF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.pi_pi_count" | awk '{printf "%.0f", $1}'`  
 
   #Cation-pi contacts and strength
-  set SCATPF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.cation_pi_strength" | awk '{printf "%5.3f", $1}'`  
-  set NCATPF = `cat ${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.cation_pi_count" | awk '{printf "%.0f", $1}'` 
+  set SCATPF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.cation_pi_strength" | awk '{printf "%5.3f", $1}'`  
+  set NCATPF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.cation_pi_count" | awk '{printf "%.0f", $1}'` 
  
+  #Halogen bonds and mean HalBS
+  set MHALBSF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.halogen_bond_normality" | awk '{printf "%5.3f", $1}'`  
+  set NXBONDF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.halogen_bond_count" | awk '{printf "%.0f", $1}'` 
+      
   #Give summary
   echo " "                                                       | tee -a $LOG
   echo "****** New ligand details ($RESID $CHID $RESNUM) ******" | tee -a $LOG
@@ -10461,6 +10537,8 @@ foreach LIG (`echo $NLIG_LIST | sed 's/:/ /g'`)
     echo "Pi-Pi interaction strength        : $SPIPIF"           | tee -a $LOG 
     echo "Number of cation-Pi interactions  : $NCATPF"           | tee -a $LOG 
     echo "Cation-Pi interaction strength    : $SCATPF"           | tee -a $LOG
+    echo "Number of halogen bonds           : $NXBONDF"          | tee -a $LOG 
+    echo "Mean halogen bond score           : $MHALBSF"          | tee -a $LOG 
     echo " "                                                     | tee -a $LOG
   endif
 end

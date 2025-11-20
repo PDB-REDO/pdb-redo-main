@@ -1,6 +1,6 @@
       PROGRAM CIF2CIF
 C=======================================================================
-C  Version 9.04 2024-10-24
+C  Version 9.05 2025-09-02
 C  Cleans up mmCIF files to ensure that they can be used in an automated
 C  fashion. It works on all reasonably valid mmCIF reflection files. One
 C  weakpoint is that it cannot always handle files in which the data
@@ -74,6 +74,9 @@ C    Perrakis: "PDB_REDO: constructive validation, more than just
 C    looking for errors" Acta Cryst. D68, p. 484-496 (2012)
 C
 C  Changelog
+C  Version 9.05:
+C  - Bugfix for cases with a lot of loops before the main reflection
+C    loop.
 C  Version 9.04:
 C  - Bugfixes for merging sigma values of anomalous reflections when
 C    experimental sigma values are ignored. 
@@ -178,7 +181,7 @@ C-----Declare the variables and parameters
       INTEGER   MAXDAT, MAXLAB, MAXCOL, I, J, K, L, STATUS
       CHARACTER FILLER*4
       CHARACTER VERS*4
-      PARAMETER (VERS='9.04')
+      PARAMETER (VERS='9.05')
 C-----MAXDAT is the maximum number of reflections in the file. This
 C-----should be enough for almost all reflection files.
       PARAMETER (MAXDAT=11000000)
@@ -409,10 +412,15 @@ C                   Read wavelength (only the first one)
                       WRITE(6,*) 'Using wavelength', WAVEL,'A' 
                     END IF
                     GO TO 100
-                  ELSE
+                  ELSE IF (COLUMN(1).NE.0) THEN
 C                   We are in the reflection data loop  
                     BACKSPACE(7)
                     GO TO 200
+                  ELSE 
+C                   We are in some other loop, ignore
+                    WRITE(6,*) 'Not using the data in this loop ',
+     +                LABELS(1)
+                    GO TO 100
                   END IF
                 ELSE 
 C                 We are in some other loop

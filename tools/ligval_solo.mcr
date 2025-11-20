@@ -1,5 +1,5 @@
 # ligval_solo.mcr: a YASARA macro to validate ligands and their interactions.
-# Version 1.00
+# Version 1.01
 #
 # Minimum YASARA tier: YASARA model, YASARA dynamics is required to calculate the energy of formation.
 #
@@ -13,6 +13,9 @@
 #    structure model optimization" IUCrJ 1, p. 213-220 (2014)
 #
 # Changelog:
+# Version 1.01
+# - Added a listing of the residue to ensure the residue description can be mined from the output in case there are no 
+#   interactions. 
 # Version 1.00
 # - First attempt based on the new versus old ligand validation script.
 #
@@ -38,6 +41,9 @@ LoadCIF (newpdb)
 #Add hydrogens
 AddHydAll
 
+#List residue
+ListRes Res (resnum) Mol (chid) Obj 1
+
 #Count the bumps
 print "Start bumps new"
 ListConRes Res (resnum) Mol (chid) Obj 1, Obj 1, Cutoff=-0.42, Subtract=HBoRadii, Exclude=5, Sort=No
@@ -46,7 +52,7 @@ print "End bumps new"
 #Get the hydrogen bonds and their energy
 print "Start hbond new"
 ListHBoRes Res (resnum) Mol (chid) Obj 1, Obj 1
-print "End hbond new"
+print "End hbond new" 
 
 #Get hydrophobic inteactions
 print "Start hydpho new"

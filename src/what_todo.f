@@ -1,6 +1,6 @@
       PROGRAM WHAT_TODO
 C=======================================================================
-C  Version 2.01 2024-09-05
+C  Version 2.02 2025-09-09
 C  Parses pdbout.txt files from WHAT_CHECK and generates lists of 
 C  residues that require attention.
 C
@@ -30,6 +30,8 @@ C    Perrakis: "PDB_REDO: constructive validation, more than just
 C    looking for errors" Acta Cryst. D68, p. 484-496 (2012)
 C
 C    Changelog:
+C    Version 2.02:
+C    - Bugfix for reading the mmCIF format from extractor.
 C    Version 2.01:
 C    - Now using the data format from the new mmCIF extractor.
 C    Version 2.00:
@@ -49,7 +51,7 @@ C-----Declare basic variables and parameters
       INTEGER   MAXLIN, I, J, K, STATUS, ARGS, MAXRES
       CHARACTER RESIDUES*83, BACKBONE*24
       CHARACTER VERS*4
-      PARAMETER (VERS='2.01')
+      PARAMETER (VERS='2.02')
 C-----MAXLIN is the maximum allowed lines in a PDBOUT file
       PARAMETER (MAXLIN=999999)
 C-----The number of residues in the NO_BLD arrays
@@ -394,13 +396,22 @@ C-----Declare variables
 C-----Initialise (we need the no_build item in the _skip_list loop)
       REWIND(9)
       DO 1, I=1, 100     
-        READ(UNIT=9, FMT=100) SKIPIN
+      READ(UNIT=9, FMT=100, END=101) SKIPIN
         IF (SKIPIN(1:11) .EQ. '_skip_list.') THEN
 C         We are in the right loop
           DO 5, J=1, 50
-            READ(UNIT=9, FMT=100) SKIPIN
+            READ(UNIT=9, FMT=100, END=101) SKIPIN
 C           Jump forward if the find the 'no_build' item 
-            IF (INDEX(SKIPIN, 'no_build').NE.0) GO TO 9 
+            IF (INDEX(SKIPIN, 'no_build').NE.0) THEN
+              IF (SKIPIN(1:15) .EQ. '_skip_list.type') THEN
+C               We are in a direct list, read the next line
+                READ(UNIT=9, FMT=100, END=101) SKIPIN
+                GO TO 9
+              ELSE
+C               We are in a loop format
+                GO TO 9
+              END IF
+            END IF
 5         CONTINUE   
         END IF    
 1     CONTINUE
