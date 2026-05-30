@@ -22,3 +22,4 @@ $(BIN)/%: $(SRC)/%.f
 
 clean:
 	rm -f $(EXE)
+
