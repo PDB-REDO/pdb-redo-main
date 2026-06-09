@@ -1,0 +1,43 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: PDB-REDO
+message: >-
+  If you use pdb-redo, please cite any of the associated
+  papers.
+type: software
+authors:
+  - given-names: Robbie
+    name-particle: P.
+    family-names: Joosten
+    email: r.joosten@nki.nl
+    affiliation: Netherlands Cancer Institute
+    orcid: 'https://orcid.org/0000-0002-2323-2686'
+identifiers:
+  - type: doi
+    value: 10.1107/S0021889809008784
+    description: Original PDB-REDO paper
+  - type: doi
+    value: 10.1107/S0907444911054515
+    description: Paper describing the main algorithms in pdb-redo.
+  - type: doi
+    value: 10.1093/bioinformatics/btr590
+    description: Paper describing the rebuilding tools in pdb-redo
+  - type: doi
+    value: 10.1186/1758-2946-5-36
+    description: >-
+      Paper that describes the ligand validation in
+      pdb-redo.
+  - type: doi
+    value: 10.1107/S2059798321007610
+    description: >-
+      Paper that describes the handling of nucleic acid
+      structures.
+repository-code: 'https://github.com/PDB-REDO/pdb-redo-main'
+url: 'https://pdb-redo.eu'
+abstract: >-
+  PDB-REDO is an automated software pipeline to refine,
+  rebuild and validate crystallographic structure models
+  based using their (original) experimental data.
+license: BSD-2-Clause
