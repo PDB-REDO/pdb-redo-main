@@ -1,9 +1,10 @@
 # Description: Finds all YASARA and density-fitness validation output files and PDB-REDO metadata 
 #              in a single directory and combines them into a single JSON file.
-# Version 2.02
+# Version 2.03
 #
 # Changelog:
-# v2.02 Halogen bond data are now teken into account
+# v2.03 Bugfix for cases where no halogen bond validation data are available.
+# v2.02 Halogen bond data are now taken into account
 # v2.01 Bugfix in obtaining the occupancy from the validation files for new compounds.
 # v2.00 Removed dependence on a coordinate file to get atomic occupancies because this was not mmCIF compatible.
 # v1.00 Initial version written by Ida de Vries
@@ -84,7 +85,6 @@ class ligandvalidation:
         ### Create dictionary containing all extracted above and return this dictionary ###
         try:
             dict_data = { "pdb_id" : versions['data']['PDBID'], 
-                          "coordinates_revision_date_pdb" : versions['data']['coordinates_revision_date_pdb'], 
                           "coordinates_revision_major_mmCIF" : versions['data']['coordinates_revision_major_mmCIF'], 
                           "coordinates_revision_minor_mmCIF" : versions['data']['coordinates_revision_minor_mmCIF'], 
                           "coordinates_edited" : versions['data']['coordinates_edited'],
@@ -337,7 +337,13 @@ class ligandvalidation:
         hydpho_count, hydpho_strength = get_hydrophobic([interaction.split('\n') for interaction in ligand_log if f'hydpho {var}' and f'End hydpho {var}' in interaction][0])
         pipi_count, pipi_strength = get_pipi([interaction.split('\n') for interaction in ligand_log if f'pipi {var}' and f'End pipi {var}' in interaction][0])
         catpi_count, catpi_strength = get_catpi([interaction.split('\n') for interaction in ligand_log if f'catpi {var}' and f'End catpi {var}' in interaction][0])
-        xbond_count, xbond_strength = get_xbond([interaction.split('\n') for interaction in ligand_log if f'xbond {var}' and f'End xbond {var}' in interaction][0])
+        
+        #Halogen bond data may not be available so set defaults
+        try: 
+            xbond_count, xbond_strength = get_xbond([interaction.split('\n') for interaction in ligand_log if f'xbond {var}' and f'End xbond {var}' in interaction][0])
+        except:
+            xbond_count = 0
+            xbond_strength = None
 
         ### Make dictionary containing interaction details for ligand ori ###
         interactions = {}

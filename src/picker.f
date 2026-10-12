@@ -1,6 +1,6 @@
       PROGRAM PICKER
 C=======================================================================
-C  Version 7.01 2024-03-04
+C  Version 8.00 2026-03-26
 C  Returns the refinement setting for the best structure based on a
 C  typical input file. Dedicated software, not for general use!
 C
@@ -52,6 +52,10 @@ C    Perrakis: "PDB_REDO: constructive validation, more than just
 C    looking for errors" Acta Cryst. D68, p. 484-496 (2012)
 C              
 C Changelog:
+C version 8.00:
+C - For sake of 8-character pdb identifiers som input and out formats 
+C   were updated. 
+C
 C Version 7.01:
 C - Further tuning in case of R-free vs LLFREE conflicts.
 C
@@ -124,7 +128,7 @@ C=======================================================================
 C-----Declare the basic variables and parameters
       INTEGER   I, J, K, STATUS, MAXLIN
       CHARACTER VERS*4
-      PARAMETER (VERS='7.01')
+      PARAMETER (VERS='8.00')
 C-----MAXLIN is the maximum number of refinement settings that can be
 C     evaluated
       PARAMETER (MAXLIN=40)
@@ -138,7 +142,7 @@ C     evaluated
      +          BDIFF,  BRFZ,   BRAT, BLLFR2, BRFREE2 
       DOUBLE PRECISION  GTREAL
 C-----Data arrays
-      CHARACTER COND(MAXLIN)*4, OPTCON*4
+      CHARACTER COND(MAXLIN)*8, OPTCON*8
       INTEGER   NCYC(MAXLIN)
       REAL      RFREE(MAXLIN), RFACT(MAXLIN), FOM(MAXLIN),
      +          DIFF(MAXLIN),  ANGLE(MAXLIN), CHIRAL(MAXLIN),
@@ -545,11 +549,11 @@ C       Check for a compromise (second bests agree)
                   
 C-----Write  optimal condition
 300   IF (IMPROV.EQV..FALSE.) THEN
-        WRITE(UNIT=6,FMT='(A4)') 'none'
+        WRITE(UNIT=6,FMT='(A)') 'none'
       ELSE IF (OPTCON.EQ.'tl10') THEN
-	WRITE(UNIT=6,FMT='(A5)') 'tls10'
+	WRITE(UNIT=6,FMT='(A)') 'tls10'
       ELSE
-        WRITE(UNIT=6,FMT='(A4)') OPTCON
+        WRITE(UNIT=6,FMT='(A)') OPTCON
       END IF
 
 C-----End of the line

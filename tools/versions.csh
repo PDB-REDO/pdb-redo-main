@@ -192,19 +192,19 @@ cp $VFILE $VFILE.tmp && jq '.software +={"platonyzer":{ "version":$version, "use
 set VERSION = `$TOOLS/detectHbonds | grep version | awk '{print $4}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"detectHbonds":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 37) modelcompare, always
-set VERSION = `$TOOLS/modelcompare | grep version | awk '{print $4}'`
-cp $VFILE $VFILE.tmp && jq '.software +={"modelcompare":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
+# # 37) modelcompare, always
+# set VERSION = `$TOOLS/modelcompare | grep version | awk '{print $4}'`
+# cp $VFILE $VFILE.tmp && jq '.software +={"modelcompare":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 42) hoder, optional
+# 37) hoder, optional
 set VERSION = `$TOOLS/hoder --version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"HODER":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 43) PHASER, optional
+# 38) PHASER, optional
 set VERSION = `phaser --version | head -n 1 | cut -c 8-  | awk '{print $1}'`
-cp $VFILE $VFILE.tmp && jq '.software +={"PHASER":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
+cp $VFILE $VFILE.tmp && jq '.software +={"PHASER":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 44) txt2json.py, always
+# 39) txt2json.py, always
 set VERSION = `$TOOLS/txt2json.py -h |  grep version | awk '{print $3}' | tr -d ')'`
 cp $VFILE $VFILE.tmp && jq '.software +={"txt2json":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
@@ -212,72 +212,72 @@ cp $VFILE $VFILE.tmp && jq '.software +={"txt2json":{ "version":$version, "used"
 # set VERSION = `$TOOLS/seqrescopier | head -n 1 | awk '{print $4}'`
 # cp $VFILE $VFILE.tmp && jq '.software +={"seqrescopier":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 46) flipper, always
+# 40) flipper, always
 set VERSION = `$TOOLS/flipper --version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"flipper":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 47) distel, optional
+# 41) distel, optional
 set VERSION = `$TOOLS/distel.py --version | awk '{print $3}' | sed 's/)//'`
 cp $VFILE $VFILE.tmp && jq '.software +={"distel":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 48) Refmacat/Servalcat, always
+# 42) Refmacat/Servalcat, always
 set VERSION = `refmacat --version | awk '{print $2}' | head -n 1`
 cp $VFILE $VFILE.tmp && jq '.software +={"Refmacat":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 49) DNATCO, optional
+# 43) DNATCO, optional
 set VERSION = `$DNATCO --version | grep DNATCO | awk '{print $2}' |tr -d ','`
 cp $VFILE $VFILE.tmp && jq '.software +={"dnatco":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 50) loopwhole, optional
+# 44) loopwhole, optional
 set VERSION = `$TOOLS/loopwhole | grep version | awk '{print $4}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"loopwhole":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 51) loopwhole-validate
+# 45) loopwhole-validate
 set VERSION = `$TOOLS/loopwhole-validate | grep version | awk '{print $4}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"loopwhole-validate":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 52) findandfit, optional 
+# 46) findandfit, optional 
 cp $VFILE $VFILE.tmp && jq '.software +={"findligand":{ "version":null, "used":false }}' $VFILE.tmp > $VFILE
 
-# 53) cif-merge, always
+# 47) cif-merge, always
 set VERSION = `$TOOLS/cif-merge --version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"cif-merge":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 54) fix-dmc, optional
+# 48) fix-dmc, optional
 set VERSION = `$TOOLS/fix-dmc --version | head -n 1 | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"fix-dmc":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 55) pdb2cif
+# 49) pdb2cif
 set VERSION = `$TOOLS/pdb2cif --version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"pdb2cif":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 56) carbonanza, always
+# 50) carbonanza, always
 set VERSION = `$TOOLS/carbonanza --version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"carbonanza":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 57) cif2fasta
+# 51) cif2fasta
 set VERSION = `$TOOLS/cif2fasta --version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"cif2fasta":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 58) blastp 
+# 52) blastp 
 if ($?BLASTP) then
   set VERSION = `$BLASTP -version | grep 'blastp' | awk '{print $2}'`
   cp $VFILE $VFILE.tmp && jq '.software +={"BLASTp":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 endif
 
-# 59) carbivore
+# 53) carbivore
 set VERSION = `$TOOLS/carbivore --version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"carbivore":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 61) Gemmi
+# 54) Gemmi
 set VERSION = `gemmi --version | awk '{print $2}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"gemmi":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 62) mmCQL, always
-set VERSION = `$TOOLS/mmCQL --version | awk '{print $3}'`
-cp $VFILE $VFILE.tmp && jq '.software +={"mmCQL":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
+# 55) mmcql, always
+set VERSION = `$TOOLS/mmcql --version | awk '{print $3}'`
+cp $VFILE $VFILE.tmp && jq '.software +={"mmcql":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
-# 63) tortoize
+# 56) tortoize
 set VERSION = `$TOOLS/tortoize --version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"tortoize":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 # 

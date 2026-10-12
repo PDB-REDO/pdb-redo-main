@@ -152,10 +152,38 @@ endif
 # - DNATCO         Validation of nucleic acid models
 #
 ####################################################### Change log #######################################################
-set VERSION = '8.20' #PDB-REDO version
+set VERSION = '8.22' #PDB-REDO version
 
+# Version 8.22:
+# - Updated the code to move all mmcql runs to the new version.
+# - Bugfix in sidechain flipping (credit to Vincent Chen)
+# - Format updates for extractor output. 
+# - Inproved catch for extractor errors.
+#
+# Version 8.21:
+# - Added more informative error message for restraint generation issues.
+# - Bugfix in the interpretation of Phaser output that caused false positives for twinning.
+# - Bugfixes in the ligand validation output parsing.
+# - Now using Phaser to detect suspicious reflections.
+# - In legacy mode, the (false) twin test is still performed.
+# - More updates with respect to mmcql syntax.
+# - Implemented temporary workaround for YASARA being fidgety about struct_conn records.
+# - Bugfix for fixing restraint files form eLBOW with mmcql.
+# - Lowered maximum number of hit for Hoder to 400.
+#
 # Version 8.20:
 # - Halogen bond information is now also added to the ligand validation JSON.
+# - Bugfixes to deal with mmCIF for rama-angles and using previous pdb-redo databank entries.
+# - Added catch for restraint files in which the compound is typed as 'ligand' instead of 'non-polymer'.
+# - Removed modelcompare.
+# - Started using a more fully featured mmCQL. 
+# - 'CISPEP' records are removed again afater the 0-cycle refinement.
+# - PDB-REDO is now added to the software section of the output mmCIF file.
+# - Added a killswitch for the isotropic/overall B-factor model choice.
+# - Rewired the B-factor model selection (ISOT vs OVER).
+# - Stability fix for cases where the botched B-molde selection may be caused by TLS refinement.
+# - Bugfix in the occupancy refinement setup
+# - Added a fix for corrupt pdbx_formal_charge records.
 #
 # Version 8.19:
 # - Added a new mmCIF-based carbivore.
@@ -696,7 +724,7 @@ set HOMINCMD      =         #Command for extra homologous structures
 set HARMCMD       =         #Harmonic restraints command
 set WAVELCACHE    =         #Wavelength cashed from input MTZ file
 set MAXPRUNE      = 20      #Give up after removing MAXPRUNE restraints
-set MAXHIT        = 512     #Maximum number of BLAST hits to use for HODER.
+set MAXHIT        = 400     #Maximum number of BLAST hits to use for HODER.
 set SCATLIN       =         #Line that overruls the default scattering factor file
 set SCATTERCMD    =         #Use the default X-ray scattering factors
 set PHASES        =         #No phase columns as input by default
@@ -852,9 +880,9 @@ if ($1 == "--local") then
 endif
 
 #Write out header
-echo " __   __   __     __   ___  __   __    _    __   __  " | tee -a $LOG
-echo "|__) |  \ |__) _ |__) |__  |  \ /  \  (_)    _) / /\ " | tee -a $LOG
-echo "|    |__/ |__)   |  \ |___ |__/ \__/  (_) o /__ \/_/ " | tee -a $LOG
+echo " __   __   __     __   ___  __   __    _    __  __  " | tee -a $LOG
+echo "|__) |  \ |__) _ |__) |__  |  \ /  \  (_)    _)  _) " | tee -a $LOG
+echo "|    |__/ |__)   |  \ |___ |__/ \__/  (_) o /__ /__ " | tee -a $LOG
 echo " "
 
 #Font for the header
@@ -1379,6 +1407,7 @@ if ($NOPDB == 1 || $NOSF == 1) then
   rm $WORKDIR/*.rest >& /dev/null
   rm $WORKDIR/mapval.log >& /dev/null
   rm $WORKDIR/occupancy_cmd.refmac >& /dev/null
+  rm $WORKDIR/$PDBID.hkl.cif >& /dev/null
 else
   #Delete all previous results!
   if (-e $WORKDIR) then
@@ -1465,9 +1494,16 @@ if ("$INREST" != "") then
     set DICTCMDEX = "--dict $WORKDIR/${PDBID}_het.cif"
     set DICTCMD   = "--restraint-dict $WORKDIR/${PDBID}_het.cif"
   endif
-  #Convert the restraint file to CCD-like description
-  cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.restr2ccd.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-  $TOOLS/restr2ccd $WORKDIR/${PDBID}_het.cif $WORKDIR/${PDBID}_ccd.cif
+  
+  #Deal with eLBOW calling non-polymer compounds ligand
+  if (`$TOOLS/cif-grep -c -i _chem_comp.group ligand $WORKDIR/${PDBID}_het.cif` > 0) then
+    echo " o The restraint file uses a non-standard compound type. Trying to compensate."   | tee -a $LOG
+    $TOOLS/mmcql -v -f $TOOLS/restraints.cql $WORKDIR/${PDBID}_het.cif >& $WORKDIR/mmcql.log 
+  endif
+  
+#   #Convert the restraint file to CCD-like description
+#   cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.restr2ccd.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
+#   $TOOLS/restr2ccd $WORKDIR/${PDBID}_het.cif $WORKDIR/${PDBID}_ccd.cif
 else
   set LIBLIN = "LIBOUT $WORKDIR/${PDBID}_het.cif" #Output Refmac library file for new compounds or LINKs
 endif
@@ -1729,8 +1765,8 @@ if (`$TOOLS/cif-grep -c -i _struct_ncs_oper.code generate $WORKDIR/$PDBID.xyz.ci
 endif
 
 #If implicit atoms are used as described in REMARK 285, create WHY_NOT comment
-if (`grep -c _pdbx_database_remark $WORKDIR/$PDBID.xyz.cif` > 0) then
-  if (`echo "select text from pdbx_database_remark where id = 285 ;" | $TOOLS/mmCQL --force $WORKDIR/$PDBID.xyz.cif | grep -c "THE ENTRY PRESENTED HERE DOES NOT CONTAIN THE COMPLETE"` != 0) then
+if (`grep -c '^_pdbx_database_remark' $WORKDIR/$PDBID.xyz.cif` > 0) then
+  if (`$TOOLS/mmcql -c "select text from pdbx_database_remark where id = 285 ;" $WORKDIR/$PDBID.xyz.cif | grep -c "THE ENTRY PRESENTED HERE DOES NOT CONTAIN THE COMPLETE"` != 0) then
     echo "-This model has implicit atoms" | tee -a $LOG
     echo "COMMENT: Asymmetric unit not complete" >> $WHYNOT
     echo "PDB-REDO,$PDBID"                       >> $WHYNOT
@@ -1787,9 +1823,9 @@ else if (`$TOOLS/cif-grep -i _atom_site.label_atom_id . $WORKDIR/$PDBID.xyz.cif 
 endif
 
 
-#Is there only 1 type of residue and is it UNK?
-if (`echo "SELECT label_comp_id FROM atom_site WHERE group_PDB = 'ATOM';" | $TOOLS/mmCQL $WORKDIR/$PDBID.xyz.cif | grep -v label_comp_id | sort -u | wc -l` == 1 && \
-    `echo "SELECT label_comp_id FROM atom_site WHERE group_PDB = 'ATOM';" | $TOOLS/mmCQL $WORKDIR/$PDBID.xyz.cif | grep -v label_comp_id | head -n 1` == "UNK") then
+#Is there only 1 type of residue and is it UNK? Testcase: pdb_00001xgf
+if (`$TOOLS/mmcql --format list -c "SELECT label_comp_id FROM atom_site WHERE group_PDB = 'ATOM';" $WORKDIR/$PDBID.xyz.cif | sort -u | wc -l` == 1 && \
+    `$TOOLS/mmcql --format list -c "SELECT label_comp_id FROM atom_site WHERE group_PDB = 'ATOM';" $WORKDIR/$PDBID.xyz.cif | head -n 1` == "UNK") then
   #Do not use autoNCS (poly-UNKs cannot be alligned properly)
   echo "-The main chain consists only of UNK residues, NCS will not be used!" | tee -a $LOG
   set DONCS = 0
@@ -2063,51 +2099,12 @@ if ($RAAXIS != $MAAXIS || $RBAXIS != $MBAXIS || $RCAXIS != $MCAXIS || $RALPHA !=
   #Write debug message
   echo "COMMENT: cell dimension mismatch" >> $DEBUG
   echo "PDB-REDO,$PDBID"                  >> $DEBUG
- 
-mmcqlrun:
-
-  echo "-Running mmCQL" | tee -a $LOG
+  
   #Reset the cell dimensions
-  
-  $TOOLS/mmCQL -V --force \
-  $WORKDIR/$PDBID.xyz.cif \
-  $WORKDIR/${PDBID}_cell.cif \
-  <<eof >& $WORKDIR/mmCQL.log
-    UPDATE cell SET length_a = $RAAXIS, length_b = $RBAXIS, length_c = $RCAXIS, angle_alpha = $RALPHA, angle_beta = $RBETA, angle_gamma = $RGAMMA;
-eof
-
-  #Check the file
-  if (-z $WORKDIR/${PDBID}_cell.cif || ! -e $WORKDIR/${PDBID}_cell.cif) then
-    #Something is really wrong. Halt and give WHY_NOT comment
-    echo "COMMENT: mmCQL: cannot parse structure model" >> $WHYNOT
-    echo "PDB-REDO,$PDBID"                              >> $WHYNOT
-    #Give detailed help message
-    if ($LOCAL == 1) then
-      echo " " | tee -a $LOG
-      echo "FATAL ERROR!" | tee -a $LOG
-      echo "------------" | tee -a $LOG
-      echo "Your input model is not valid (enough) PDB or mmCIF format." | tee -a $LOG
-      echo " " | tee -a $LOG
-      echo "Need help with this? Please contact us on pdb-redo@nki.nl and include this log file." | tee -a $LOG
-      echo " " | tee -a $LOG
-      grep -E -v 'Expected|Ignoring' $WORKDIR/mmCQL.log | tee -a $LOG
-      if ($SERVER == 1) then
-        #Write out status files
-        touch $STDIR/stoppingProcess.txt
-        touch $STDIR/processStopped.txt
-      endif
-    else
-      echo "   * The input model is not valid enough to parse. Exit." | tee -a $LOG	  
-    endif   
-    exit(1)
-  endif  
-  
-  #Succesfully updated the cell dimensions, also apply again after cif-merge
+  echo "-Running mmcql" | tee -a $LOG
   set CELLUPDATE = 1
-else 
-  cp $WORKDIR/$PDBID.xyz.cif $WORKDIR/${PDBID}_cell.cif 
+  $TOOLS/mmcql -c "UPDATE cell SET length_a = $RAAXIS, length_b = $RBAXIS, length_c = $RCAXIS, angle_alpha = $RALPHA, angle_beta = $RBETA, angle_gamma = $RGAMMA;" $WORKDIR/$PDBID.xyz.cif 
 endif
-
 
 #Get versions of the input data (only when working from the PDB)
 if ($LOCAL == 0) then
@@ -2125,7 +2122,7 @@ if ($LOCAL == 0) then
   set CREVMAJOR = `$TOOLS/cif-grep -i '_pdbx_audit_revision_history.major_revision' '.' $WORKDIR/${PDBID}.xyz.cif | sort -n | tail -n 1`
   cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq --arg crevmajor $CREVMAJOR '.data.coordinates_revision_major_mmCIF |= $crevmajor' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
     
-  set CREVMINOR = `echo "SELECT minor_revision FROM pdbx_audit_revision_history WHERE major_revision = $CREVMAJOR;" | $TOOLS/mmCQL $WORKDIR/${PDBID}.xyz.cif >& $WORKDIR/temp.log &&  sort -n $WORKDIR/temp.log | grep -v 'minor_revision' | grep -v 'valid' | tail -n 1`
+  set CREVMINOR = `$TOOLS/mmcql --format list -c "SELECT MAX(minor_revision) FROM (SELECT minor_revision FROM pdbx_audit_revision_history WHERE major_revision = $CREVMAJOR);" $WORKDIR/$PDBID.xyz.cif`
   cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq --arg crevminor $CREVMINOR '.data.coordinates_revision_minor_mmCIF |= $crevminor' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
 endif
 
@@ -2137,13 +2134,13 @@ echo "-Preparing the structure model" | tee -a $LOG
 #Perform DEFY flips before reannotating any LINKs. PROGRAM: flipper
 echo " o Performing DEFY flips" | tee -a $LOG
 $TOOLS/flipper -v \
-$WORKDIR/${PDBID}_cell.cif \
+$WORKDIR/${PDBID}.xyz.cif \
 $DICTCMD \
 $WORKDIR/${PDBID}_flipper.cif >& $WORKDIR/flipper.log
 
 #Contingency for flipper failure
 if (! -e $WORKDIR/${PDBID}_flipper.cif) then
-  cp $WORKDIR/${PDBID}_cell.cif $WORKDIR/${PDBID}_flipper.cif
+  cp $WORKDIR/${PDBID}.xyz.cif $WORKDIR/${PDBID}_flipper.cif
   
   #See if this is an error or note
   echo "   * Error running flipper"   | tee -a $LOG
@@ -2292,9 +2289,18 @@ if (! -e $WORKDIR/${PDBID}_prepped.cif || -z $WORKDIR/${PDBID}_prepped.cif) then
     exit(1)
   endif    
 endif
+
   
 #Report changes
 grep -A 12 Report $WORKDIR/prepper.log | grep -v -E 'Report|CPU|Invalid' | xargs -d '\n' -n 1 echo "   *" | tee -a $LOG
+#Correct charges if needed
+set NCHARGECORRUPT = `$TOOLS/cif-grep -c -i _atom_site.pdbx_formal_charge '[123456789][+-]' $WORKDIR/${PDBID}_prepped.cif`
+if ($NCHARGECORRUPT > 0) then
+  cp $WORKDIR/${PDBID}_prepped.cif $WORKDIR/${PDBID}_prepped_chargefix.cif
+  $TOOLS/mmcql -c 'UPDATE atom_site SET pdbx_formal_charge = NULL;' $WORKDIR/${PDBID}_prepped.cif
+  echo "   * Charge records fixed  : $NCHARGECORRUPT" | tee -a $LOG
+endif  
+
 
 ####################### Extract essential information from structure factors and coordinate file ##########################
 
@@ -2424,7 +2430,7 @@ $WORKDIR/${PDBID}.hkl.cif \
 $WORKDIR/$PDBID >& $WORKDIR/extractor.log
 
 #Success or not?
-if (-e $WORKDIR/$PDBID.extracted) then
+if (-s $WORKDIR/$PDBID.extracted) then
 #Do nothing
 else
   #Give PDB-REDO mode-specific error messages
@@ -2527,7 +2533,7 @@ set REFCNT     = `$TOOLS/cif-grep -i _extracted_info.reflection_count . $WORKDIR
 set TSTCNT     = `$TOOLS/cif-grep -i _extracted_info.testset_count . $WORKDIR/$PDBID.extracted`
 set TSTPRC     = `$TOOLS/cif-grep -i _extracted_info.testset_perc . $WORKDIR/$PDBID.extracted | awk '{printf ("%.1f\n", $1)}'`
 set WAVELPDB   = `$TOOLS/cif-grep -i _extracted_info.wavelength . $WORKDIR/$PDBID.extracted`
-set COMPLETEH  = `$TOOLS/cif-grep -i _extracted_info.completeness . $WORKDIR/$PDBID.extracted`
+set COMPLETEH  = `$TOOLS/cif-grep -i _extracted_info.completeness . $WORKDIR/$PDBID.extracted | awk '{printf ("%.1f\n", $1)}'`
 
 #Model properties
 set GOT_PROT = F
@@ -2549,8 +2555,8 @@ if ($SOLVD == "") then
 endif
 
 #Refinement data
-set RFACT      = `$TOOLS/cif-grep -i _extracted_info.r_factor . $WORKDIR/$PDBID.extracted`
-set RFREE      = `$TOOLS/cif-grep -i _extracted_info.r_free . $WORKDIR/$PDBID.extracted`
+set RFACT      = `$TOOLS/cif-grep -i _extracted_info.r_factor . $WORKDIR/$PDBID.extracted | awk '{printf ("%.3f\n", $1)}'`
+set RFREE      = `$TOOLS/cif-grep -i _extracted_info.r_free . $WORKDIR/$PDBID.extracted | awk '{printf ("%.3f\n", $1)}'`
 set VDWPROBE   = `$TOOLS/cif-grep -i _extracted_info.solvent_vdw_probe_radii . $WORKDIR/$PDBID.extracted`
 if ($VDWPROBE == '' || $VDWPROBE == '?') then
   set VDWPROBE = 'NA'
@@ -2578,7 +2584,7 @@ set TITLE      = "`$TOOLS/cif-grep -i _struct.title . $WORKDIR/${PDBID}_prepped.
 
 #Lists
 if (`grep -c 'no_build' $WORKDIR/$PDBID.extracted` > 0) then
-  set NO_REBUILD = `echo "SELECT list FROM skip_list WHERE type = 'no_build' ; " | $TOOLS/mmCQL $WORKDIR/$PDBID.extracted | grep ':'`
+  set NO_REBUILD = `$TOOLS/mmcql -c "SELECT list FROM skip_list WHERE type = 'no_build' ;" $WORKDIR/$PDBID.extracted | grep ':'`
 else 
   set NO_REBUILD = ':'
 endif  
@@ -2588,7 +2594,7 @@ if (-e $WORKDIR/${PDBID}_platonyzed.skip-sideaid) then
 endif
 
 if (`grep -c 'H2O-keep' $WORKDIR/$PDBID.extracted` > 0) then
-  set H2O_KEEP   = `echo "SELECT list FROM skip_list WHERE type = 'H2O-keep' ; " | $TOOLS/mmCQL $WORKDIR/$PDBID.extracted | grep ':'`
+  set H2O_KEEP   = `$TOOLS/mmcql -c "SELECT list FROM skip_list WHERE type = 'H2O-keep' ;" $WORKDIR/$PDBID.extracted | grep ':'`
 else
   set H2O_KEEP   = ':'
 endif
@@ -2598,7 +2604,7 @@ if (-e $WORKDIR/${PDBID}_platonyzed.skip-waters) then
 endif
 
 if (`grep -c 'bbn_keep' $WORKDIR/$PDBID.extracted` > 0) then
-  set BBN_KEEP   = `echo "SELECT list FROM skip_list WHERE type = 'bbn_keep' ; " | $TOOLS/mmCQL $WORKDIR/$PDBID.extracted | grep ':'`
+  set BBN_KEEP   = `$TOOLS/mmcql -c "SELECT list FROM skip_list WHERE type = 'bbn_keep' ;" $WORKDIR/$PDBID.extracted | grep ':'`
 else
   set BBN_KEEP   = ':'
 endif  
@@ -2608,7 +2614,7 @@ if (-e $WORKDIR/${PDBID}_platonyzed.skip-pepflipN) then
 endif
 
 if (`grep -c 'bbo_keep' $WORKDIR/$PDBID.extracted` > 0) then
-  set BBO_KEEP   = `echo "SELECT list FROM skip_list WHERE type = 'bbo_keep' ; " | $TOOLS/mmCQL $WORKDIR/$PDBID.extracted | grep ':'`
+  set BBO_KEEP   = `$TOOLS/mmcql -c "SELECT list FROM skip_list WHERE type = 'bbo_keep' ;" $WORKDIR/$PDBID.extracted | grep ':'`
 else
   set BBO_KEEP   = ':'
 endif 
@@ -3220,40 +3226,56 @@ else
   set COMPLETED = `mtzdmp $WORKDIR/lowres.mtz | grep '  FP' | awk '{print $6}'`
 endif
   
-#Check for twinning with Phaser if SFCHECK suggests twinning. PROGRAM: PHASER
-if ($TWINA != "") then
-  cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.PHASER.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-
-  phaser \
-  << eof > $WORKDIR/phaser.log
-    MODE NCS
-    ROOT $WORKDIR
-    HKLIN $WORKDIR/lowres.mtz
-    LABIN  F=FP SIGF=SIGFP
-    COMPOSITION BY SOLVENT
-    COMPOSITION PERCENTAGE $SOLVD
-    HKLOUT OFF
-    END
+#User Phaser to check for twinning and for suspicious reflections. PROGRAM: PHASER
+phaser \
+<< eof > $WORKDIR/phaser.log
+  MODE NCS
+  ROOT $WORKDIR
+  HKLIN $WORKDIR/lowres.mtz
+  LABIN  F=FP SIGF=SIGFP
+  COMPOSITION BY SOLVENT
+  COMPOSITION PERCENTAGE $SOLVD
+  HKLOUT OFF
+  END
 eof
-  if (`grep -c "EXIT STATUS: SUCCESS" $WORKDIR/phaser.log` == 0) then
-    #Phaser problem.
-    echo "COMMENT: phaser: general error" >> $DEBUG
-    echo "PDB-REDO,$PDBID"                >> $DEBUG
-    set PHASTWIN = 0
-  else
-    #Check whether PHASER found twinning
-    if (`grep -c "Warning: Intensity moments suggest significant twinning" $WORKDIR/phaser.log` == 0 && `grep -c "Warning: Intensity moments suggest possibility of twinning" $WORKDIR/phaser.log` == 0 && `grep -c "twinned is considered worth investigating" $WORKDIR/phaser.log` == 0) then
-      #Phaser did not find twinning
-      set PHASTWIN = 0
-    else
-      echo " o Both SFCHECK and PHASER suggest the data are twinned" | tee -a $LOG
-      set PHASTWIN = 1
-    endif
-  endif
-else
-  #Don't look for twinning in Phaser
+if (`grep -c "EXIT STATUS: SUCCESS" $WORKDIR/phaser.log` == 0) then
+  #Phaser problem.
+  echo "COMMENT: phaser: general error" >> $DEBUG
+  echo "PDB-REDO,$PDBID"                >> $DEBUG
   set PHASTWIN = 0
+  set NSUSREFL = 0
+  set PSUSREFL = 0
+else
+  #Check whether PHASER found twinning
+  if (`grep -c "Warning: Intensity moments suggest significant twinning" $WORKDIR/phaser.log` == 0 && `grep -c "Warning: Intensity moments suggest possibility of twinning" $WORKDIR/phaser.log` == 0) then
+    #Phaser did not find twinning
+    set PHASTWIN = 0
+  else if ($TWINA != "") then
+    echo " o Both SFCHECK and PHASER suggest the data are twinned" | tee -a $LOG
+    set PHASTWIN = 1
+  else
+    echo " o PHASER suggests the data are twinned, but SFCHECK does not" | tee -a $LOG
+    set PHASTWIN = 1
+  endif
+  
+  #Look for suspicious reflections
+  
+  #Save a list of least probable reflections sorted by probability
+  grep -A 200 'DATA AFTER TRANSLATIONAL NCS CORRECTION' $WORKDIR/phaser.log | grep '[tf][ra][ul][es]' | awk '{print $7, $1, $2, $3}' | sort -g > $WORKDIR/susreflist.txt
+
+  #Report if needed
+  if (`wc -l $WORKDIR/susreflist.txt | awk '{print $1}'` > 0) then
+    set NSUSREFL = `grep 'There w.* reflection' $WORKDIR/phaser.log | tail -n 1 | awk '{print $3}'`
+    set PSUSREFL = `grep 'There w.* reflection' $WORKDIR/phaser.log | tail -n 1 | awk '{print $7}' | tr -d '%' | tr -d '(' | tr -d ')'`
+    echo " o PHASER detected $NSUSREFL outlier reflection(s), $PSUSREFL% of all reflections" | tee -a $LOG
+  else
+    set NSUSREFL = 0
+    set PSUSREFL = 0
+  endif
+  
 endif
+
+
 
 
 #Get the correct number of (R-free) reflections
@@ -3490,9 +3512,21 @@ $SCATLIN \
   END
 eof
 
-if ($status || `grep -c 'Error: Fatal error. Cannot continue' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0 || `grep -c 'is not in the list of energy types' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0) then
+if ($status || `grep -c 'Refmac finished with exit code= 0' $WORKDIR/${PDBID}_0cyc$ISTLS.log` < 1) then
   echo " " | tee -a $LOG
 
+  #Check for cases with too many NCS relations
+  if (`grep -c 'ERROR==> Too many ncs pairs' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0) then
+    echo " o Too many NCS relations. NCS restraints cannot be used." | tee -a $LOG
+    
+    #Change NCS setting 
+    set DONCS    = 0
+    set NCSTYPE  = ""
+    set NCSALIGN = ""
+    set NCSNEIGH = ""
+    goto previousredo
+  endif
+  
   #Check to see if there is a problem with alternate residues
   if (`grep -c 'different residues have the same number' $WORKDIR/${PDBID}_0cyc$ISTLS.log` != 0) then
     if ($LOCAL == 1) then
@@ -3584,9 +3618,22 @@ if ($status || `grep -c 'Error: Fatal error. Cannot continue' $WORKDIR/${PDBID}_
       goto previousredo
     endif
   else
-    #Give the short error message
-    echo " o Restraint generation problem. Cannot continue." | tee -a $LOG
-
+    #Give the short or long error message
+    if ($LOCAL == 1) then
+    #Give the long error message and stop.
+      echo " " | tee -a $LOG
+      echo "FATAL ERROR!" | tee -a $LOG
+      echo "------------" | tee -a $LOG
+      echo "Refmacat could not generate appropriate restraints for your model. It reports:" | tee -a $LOG
+      grep '[WE][ar]r[no]' $WORKDIR/${PDBID}_0cyc$ISTLS.log | tee -a $LOG
+      if ($SERVER == 1) then
+        echo " " | tee -a $LOG
+        echo "Need help with this? Please contact us on pdb-redo@nki.nl and include this log file." | tee -a $LOG
+      endif  
+    else
+      echo " o Restraint generation problem. Cannot continue." | tee -a $LOG
+    endif
+    
     #Give WHY_NOT comment
     echo "COMMENT: refmacat cannot generate all restraints" >> $WHYNOT
     echo "PDB-REDO,$PDBID"                                  >> $WHYNOT
@@ -3789,7 +3836,7 @@ if ($DOTWIN == 1) then
 endif  
 
 #Check whether de-twinning is needed to repoduce R-factors. Only when NOT using legacy mode
-if ($LEGACY == 0 && $DOTWIN == 1) then
+if ($DOTWIN == 1) then
   #Check whether the R-factors can be reproduced
   if (`$TOOLS/fitr $RFACT $RFREE $RCAL $RFCAL` == 0 && $TWIN == 'test') then #R-factors do not fit, try de-twinning.
     echo " o Problem reproducing the R-factors" | tee -a $LOG
@@ -3868,7 +3915,7 @@ eof
 
       #Evaluate R-factors
       set RCAL  = `grep -B 2 'Final results' $WORKDIR/${PDBID}_0cyc.log | head -n 1 | awk '{print $2}'`
-      if (`$TOOLS/fitr $RFACT $RFREE $RCAL $RFCAL` == 1) then
+      if (`$TOOLS/fitr $RFACT $RFREE $RCAL $RFCAL 0.1` == 1) then
         #Detwinning was needed to reproduce R-factors
         #Give warnings
         if ($PHASTWIN == 0 && $REFHSYMM > 0) then
@@ -3877,9 +3924,9 @@ eof
             echo " " | tee -a $LOG
             echo "WARNING!" | tee -a $LOG
             echo "------------" | tee -a $LOG
-            echo "Data seems to have treated as twinnned before, but Phaser did not find significant twinning." | tee -a $LOG
-            echo "Additionally, Refmac finds a potential space group problem." | tee -a $LOG
-            echo "The data will not be treated as twinned in PDB-REDO." | tee -a $LOG
+            echo "Data seems to have treated as twinnned before, but Phaser did not find significant twinning" | tee -a $LOG
+            echo "Additionally, Refmac finds a potential space group problem" | tee -a $LOG
+            echo "The data will not be treated as twinned in PDB-REDO" | tee -a $LOG
             echo "Please, check the space group carefully!" | tee -a $LOG
             echo " " | tee -a $LOG
 
@@ -3889,10 +3936,10 @@ eof
 
           else
             #Give small warning for databank mode
-            echo " o Data seems to have treated as twinnned before."  | tee -a $LOG
-            echo "   * Phaser did not find significant twinning."     | tee -a $LOG
-            echo "   * Refmac finds a potential space group problem." | tee -a $LOG
-            echo "   * Reluctantly treating the data as twinned."     | tee -a $LOG
+            echo " o Data seems to have treated as twinnned before"  | tee -a $LOG
+            echo "   * Phaser did not find significant twinning"     | tee -a $LOG
+            echo "   * Refmac finds a potential space group problem" | tee -a $LOG
+            echo "   * Reluctantly treating the data as twinned"     | tee -a $LOG
 
             set FALSETWIN = 1
 
@@ -4250,6 +4297,7 @@ if ($LEGACY == 1) then
 else
   set FITR = `$TOOLS/fitr $RFACT $RFREE $RCAL $RFCAL 0.10`
   if ($FITR == 0) then #R-factors do not fit after several tries.
+    echo " " | tee -a $LOG
     echo " o Cannot reproduce Rfactor within 0.10 tolerance:" | tee -a $LOG
     echo "   * Reported Rfactor : $RFACT" | tee -a $LOG
     echo "   * Calculated R     : $RCAL"  | tee -a $LOG
@@ -4273,13 +4321,24 @@ else
       goto beintens
     else if ($LOCAL == 0 && $GOTOLD == 0) then
       #See if a previous PDB-REDO entry exists and use its 0-cycle file
-      $WEBGET http://pdb-redo.eu/db/$PDBID/${PDBID}_0cyc.pdb.gz
+      $WEBGET http://pdb-redo.eu/db/$PDBID/${PDBID}_0cyc.cif.gz
       if($status) then
-        echo "   * Re-refinement aborted" | tee -a $LOG
+	$WEBGET http://pdb-redo.eu/db/$PDBID/${PDBID}_0cyc.pdb.gz
+        if ($status) then 
+          echo "   * Re-refinement aborted" | tee -a $LOG
+        else 
+	  #Work in legacy mode but skip rigid-body
+          zcat $WORKDIR/${PDBID}_0cyc.pdb.gz > $WORKDIR/${PDBID}_previous.pdb
+          $TOOLS/pdb2cif $WORKDIR/${PDBID}_previous.pdb $WORKDIR/${PDBID}_prepped.cif
+          echo "   * Trying previous PDB-REDO entry as starting point" | tee -a $LOG
+          set GOTOLD = 1
+          set LEGACY = 1
+          set DORB = 0
+          goto previousredo
+        endif  
       else
         #Work in legacy mode but skip rigid-body
-        zcat $WORKDIR/${PDBID}_0cyc.pdb.gz > $WORKDIR/${PDBID}_previous.pdb
-        $TOOLS/pdb2cif $WORKDIR/${PDBID}_previous.pdb $WORKDIR/${PDBID}_prepped.cif
+        zcat $WORKDIR/${PDBID}_0cyc.cif.gz > $WORKDIR/${PDBID}_prepped.cif
         echo "   * Trying previous PDB-REDO entry as starting point" | tee -a $LOG
         set GOTOLD = 1
         set LEGACY = 1
@@ -4315,11 +4374,8 @@ endif
 # Get the rough atom count
 set ONATOM = `grep -c -E '^[AH][TE][OT][MA]' $WORKDIR/${PDBID}_0cyc.cif`
 
-
-#Drop the CISPEP records
-echo "***TODO: drop the 'struct_mon_prot_cis' category"
-# cp $WORKDIR/${PDBID}_0cyc.cif $WORKDIR/${PDBID}_0cyc.bak.cif
-# grep -v '^CISPEP' $WORKDIR/${PDBID}_0cyc.bak.cif > $WORKDIR/${PDBID}_0cyc.cif
+#Drop the CISPEP records 
+$TOOLS/mmcql -c "DROP TABLE IF EXISTS struct_mon_prot_cis;" $WORKDIR/${PDBID}_0cyc.cif
 
 ####################################### Decide on using detwinning in refinement #########################################
 
@@ -4826,16 +4882,16 @@ set OCCREF = 0
 
 #Set up occupancy refinement if it is not surpressed
 if ($DOOCC == 1) then
-  #Create file with hetero compounds with more than two occupancies
-  echo "SELECT label_comp_id,auth_asym_id,auth_seq_id,occupancy FROM atom_site WHERE group_PDB = 'HETATM';" | $TOOLS/mmCQL $WORKDIR/${PDBID}_fixDMC.cif | grep -v auth | grep -v MSE | cut -f 2,3,4 | sort -u | cut -f 1,2 | uniq -c | awk '{if ($1 > 2) {print $2,$3}}' > $WORKDIR/occupancy.lst
+  #Create file with hetero compounds with more than two occupancies.
+  $TOOLS/mmcql --format list -c "SELECT auth_asym_id || ':' || auth_seq_id AS multiocc FROM (select auth_asym_id, auth_seq_id, auth_comp_id, COUNT(*) AS aantal FROM (SELECT COUNT(occupancy), auth_asym_id, auth_seq_id, auth_comp_id, occupancy FROM atom_site a WHERE a.group_PDB = 'HETATM' GROUP BY occupancy, auth_asym_id) GROUP BY auth_asym_id, auth_seq_id, auth_comp_id) WHERE aantal > 1;" $WORKDIR/${PDBID}_fixDMC.cif | tr ':' ' ' > $WORKDIR/occupancy.lst
 
   #Find hetero compounds with at least one atom with occupancy 0.01
-  echo "SELECT label_comp_id,auth_asym_id,auth_seq_id FROM atom_site WHERE group_PDB = 'HETATM' AND occupancy = '0.01';" | $TOOLS/mmCQL $WORKDIR/${PDBID}_fixDMC.cif | grep -v auth | grep -v MSE | awk '{print $2, $3}' | sort -u >> $WORKDIR/occupancy.lst
+  $TOOLS/mmcql --format list -c "SELECT auth_asym_id || ':' || auth_seq_id AS onepct FROM atom_site WHERE group_PDB = 'HETATM' AND occupancy = '0.01';" $WORKDIR/${PDBID}_fixDMC.cif | tr ':' ' ' >> $WORKDIR/occupancy.lst
   
 
   #Filter the residue list and write the Refmac command file
   if (-e $WORKDIR/occupancy.lst) then
-    foreach RES ("`sort -u $WORKDIR/occupancy.lst`")
+    foreach RES ("`sort -u $WORKDIR/occupancy.lst | grep -e '[[:alnum:]]'`")
       @ OCCREF = ($OCCREF + 1)
       set CHNID = `echo $RES | awk '{print $1}'`
       set RESN  = `echo $RES | awk '{print $2}'`
@@ -4885,7 +4941,7 @@ if (($GOT_NUC == 'T' || $DOHOMOLOGY == 1 || $DOLOOPS == 1) && ! -e $WORKDIR/nucl
     #Clean the restraints
     
     #Make list of all atoms with alternates
-    echo "SELECT auth_asym_id,auth_seq_id,auth_atom_id FROM atom_site WHERE label_alt_id IS NOT NULL;" | $TOOLS/mmCQL $WORKDIR/${PDBID}_fixDMC.cif >& $WORKDIR/allalt.list
+    $TOOLS/mmcql -c "SELECT auth_asym_id,auth_seq_id,auth_atom_id FROM atom_site WHERE label_alt_id IS NOT NULL;" $WORKDIR/${PDBID}_fixDMC.cif >& $WORKDIR/allalt.list
     
     #Loop over all restraints
     foreach REST (`cat $WORKDIR/bphbond.tmp | tr ' ' '_'`) 
@@ -4932,27 +4988,6 @@ if (($GOT_NUC == 'T' || $DOHOMOLOGY == 1 || $DOLOOPS == 1) && ! -e $WORKDIR/nucl
     mkdir -p $WORKDIR/homol
     cd $WORKDIR/homol
     
-#     #Copy in extra homologous structure models
-#     if ("$XHOM" != "") then
-#       echo "-Importing homologous structure models" | tee -a $LOG
-#       set CNT = 0
-#       #Loop over files
-#       foreach FIL ($XHOM)
-#         #Only use files with exactly 1 CRYST1 card.
-#         if (`grep -c CRYST1 $FIL` != 1) then
-#           echo " o Homologous structure model $FIL does not have exactly one CRYST1 card. It will be ignored" | tee -a $LOG
-#         else
-#           set CNT  = `expr $CNT + 1`
-#           set RANK = `seq -w $CNT 99 | head -n 1`
-#           cp $FIL $WORKDIR/homol/hom$CNT.pdb
-#           
-#           #Construct command line
-#           set HOMINCMD = "$HOMINCMD -homol hom$CNT.pdb"
-#         endif
-#       end
-#       echo " o Homologous models imported: $CNT" | tee -a $LOG
-#     endif
-
     #Generate the restraints
     cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.HODER.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
     
@@ -5041,7 +5076,7 @@ $SCATLIN \
   $HBONDCMD
   END
 eof
-if ($status) then
+if ($status || `grep -c 'Refmac finished with exit code= 0' $WORKDIR/${PDBID}_solvent.log` < 1) then
   echo " o Problem with refmac." | tee -a $LOG
   echo "COMMENT: refmac: error solvent optimisation" >> $DEBUG
   echo "PDB-REDO,$PDBID"                             >> $DEBUG
@@ -5552,8 +5587,12 @@ eof
 
     #Check for errors and report results
     foreach TLSG (`ls -Sr ????.tls | cut -c 1-4`)
-      if (! -e $WORKDIR/${TLSG}_out.tls) then
+      if (! -e $WORKDIR/${TLSG}_out.tls || `grep -c 'Final results' $WORKDIR/${PDBID}_ttest$TLSG.log` == 0) then
         echo " o Problem with Refmac using $TLSG.tls" | tee -a $LOG
+        mv $WORKDIR/$TLSG.tls $WORKDIR/$TLSG.notls
+        @ NTLS = $NTLS - 1 
+      else if (`grep ORIGIN $WORKDIR/${TLSG}_out.tls | awk 'BEGIN {fused = 0} {if (NF < 4) {fused = 1}} END {print fused}'` == 1) then
+        echo " o Corrupted TLS output for  $TLSG.tls" | tee -a $LOG
         mv $WORKDIR/$TLSG.tls $WORKDIR/$TLSG.notls
         @ NTLS = $NTLS - 1 
       else
@@ -5902,6 +5941,8 @@ eof
   
   $TOOLS/bselect -v $WORKDIR/${PDBID}_ANISOTropic.log $WORKDIR/${PDBID}_ISOTropic.log $ONATOM > $WORKDIR/bselect.log 
   set BREFTYPE = `tail -n 1 $WORKDIR/bselect.log`
+
+
   
   #Report on the individual tests
   if (`grep -c 'Taking the simplest model:' $WORKDIR/bselect.log` > 0 || `grep -A 9 'Hamilton test:' $WORKDIR/bselect.log | grep 'Best B-factor' | awk '{print $4}'` != 'NULL') then
@@ -6269,6 +6310,7 @@ isoorover:
         $HOMOLCMD
         $HBONDWGTCMD
         $HBONDCMD
+        kill $TOOLS/pdb_redo.refmac
         END
 eof
     else
@@ -6282,8 +6324,18 @@ eof
   wait
 
   #Check for problems by seeing if the output mtz file exists; then clean up
-  foreach TYPETEST (`echo "ISOT OVER"`)
-    if (! -e $WORKDIR/${PDBID}_${TYPETEST}.mtz) then
+  if (! -e $WORKDIR/${PDBID}_ISOT.mtz && ! -e $WORKDIR/${PDBID}_OVER.mtz) then
+    #Both tests failed
+    if ($DOTLS == 1) then
+      #TLS refinement may have been the cause
+      echo " o Major refinement instability detected. Trying again without TLS." | tee -a $LOG
+      set DOTLS = 0
+      cp $WORKDIR/${PDBID}_fixDMC.cif $WORKDIR/${PDBID}_refin.cif
+      set TLSCMD   =        #Empty TLS command
+      set TLSFILS  =        #No TLS files specified
+      set ADDU     = ' '    #Do not write out a second coordinate file with total B-factors
+      goto endtlstest
+    else
       echo "o Problem with refmac. Cannot continue." | tee -a $LOG
       echo "COMMENT: refmac: error in second B-factor type selection" >> $WHYNOT
       echo "PDB-REDO,$PDBID"                                          >> $WHYNOT
@@ -6294,63 +6346,110 @@ eof
       endif
       cd $BASE
       exit(1)
-    else
-      rm $WORKDIR/${PDBID}_${TYPETEST}.mtz
-      rm $WORKDIR/${PDBID}_${TYPETEST}.cif
     endif
-  end
+  else if (! -e $WORKDIR/${PDBID}_ISOT.mtz) then
+    echo "- Using the isotropic B-factor model caused unstable refinement" | tee -a $LOG
+    #ISOT failed so use OVER
+    set BREFTYPE = "OVER"
+    rm $WORKDIR/${PDBID}_OVER.mtz
+    rm $WORKDIR/${PDBID}_OVER.cif
+  else if (! -e $WORKDIR/${PDBID}_OVER.mtz) then
+    echo "- Using one overall B-factor caused unstable refinement" | tee -a $LOG
+    #OVER failed so use ISOT
+    set BREFTYPE = "ISOT"
+    rm $WORKDIR/${PDBID}_ISOT.mtz
+    rm $WORKDIR/${PDBID}_ISOT.cif
+  else
+    #Compare refinement results and decide on the B-factor type
+    cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.bselect.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
+  
+    $TOOLS/bselect -v $WORKDIR/${PDBID}_ISOT.log $WORKDIR/${PDBID}_OVER.log $ONATOM > $WORKDIR/bselect.log 
+    set BREFTYPE = `tail -n 1 $WORKDIR/bselect.log`
+  
+    #Deal with cases where BREFTYPE is undecided (very extreme)
+    if ($BREFTYPE == 'NULL') then
+      #Something went horribly wrong with the refinements
+      if ($DOTLS == 1) then
+        #TLS refinement may have been the cause
+        echo " o Major refinement instability detected. Trying again without TLS." | tee -a $LOG
+        set DOTLS = 0
+        cp $WORKDIR/${PDBID}_fixDMC.cif $WORKDIR/${PDBID}_refin.cif
+        set TLSCMD   =        #Empty TLS command
+        set TLSFILS  =        #No TLS files specified
+        set ADDU     = ' '    #Do not write out a second coordinate file with total B-factors
+        goto endtlstest
+      else
+        echo "o Problem with refmac. Cannot continue." | tee -a $LOG
+        echo "COMMENT: refmac: error in second B-factor type selection" >> $WHYNOT
+        echo "PDB-REDO,$PDBID"                                          >> $WHYNOT
+        if ($SERVER == 1) then
+          #Write out status files
+          touch $STDIR/stoppingProcess.txt
+          touch $STDIR/processStopped.txt
+        endif
+        cd $BASE
+        exit(1)
+      endif
+    endif	    
+
+    #Report on the individual tests
+    if (`grep -c 'Taking the simplest model:' $WORKDIR/bselect.log` > 0 || `grep -A 9 'Hamilton test:' $WORKDIR/bselect.log | grep 'Best B-factor' | awk '{print $4}'` != 'NULL') then
+      if (`grep -c 'R-factor gap very similar in the' $WORKDIR/bselect.log` > 0) then 
+        echo " o Hamilton test overruled: isotropic B-factors selected" | tee -a $LOG
+      else if ($BREFTYPE == "ISOT") then
+        echo " o Conclusive Hamilton test: isotropic B-factors selected" | tee -a $LOG
+      else  
+        echo " o Conclusive Hamilton test: one overall B-factor selected" | tee -a $LOG
+      endif  
+    else
+      #Check the other tests (R-free Z-score)
+      echo " o Inconclusive Hamilton test, checking for overfitting:" | tee -a $LOG
+      set TBTYPE = `grep -A 9 'R-free/R Z-score test:' $WORKDIR/bselect.log | grep 'Best B-factor' | awk '{print $6}'`
+      if ($TBTYPE == 'NULL') then
+        echo "   * R-free/R Z-score test inconclusive" | tee -a $LOG
+      else if ($TBTYPE == "ISOT") then
+        echo "   * R-free/R Z-score test: isotropic B-factors preferred" | tee -a $LOG
+      else  
+        echo "   * R-free/R Z-score test: one overall B-factor preferred" | tee -a $LOG
+      endif 
+      #R-factor gap
+      set TBTYPE = `grep -A 5 'R-free difference test:' $WORKDIR/bselect.log | grep 'Best B-factor' | awk '{print $4}'`
+      if ($TBTYPE == 'NULL') then
+        echo "   * R-factor gap test inconclusive" | tee -a $LOG
+      else if ($TBTYPE == "ISOT") then
+        echo "   * R-factor gap test: isotropic B-factors preferred" | tee -a $LOG
+      else  
+        echo "   * R-factor gap test: one overall B-factor preferred" | tee -a $LOG      
+      endif 
+      #Exchange rate
+      set TBTYPE = `grep -A 6 'Exchange rate test:' $WORKDIR/bselect.log | grep 'Best B-factor' | awk '{print $4}'`
+      if ($TBTYPE == 'BOTH') then
+        echo "   * Exchange rate test inconclusive" | tee -a $LOG
+      else if ($TBTYPE == "ISOT") then
+        echo "   * Exchange rate test: isotropic B-factors preferred" | tee -a $LOG
+      else
+        echo "   * Exchange rate test: one overall B-factor preferred" | tee -a $LOG
+      endif 
+      #Show the conclusion
+      if ($BREFTYPE == "ISOT") then
+        echo " o Used combined tests to select isotropic B-factors" | tee -a $LOG
+      else
+        echo " o Used combined tests to select one overall B-factor" | tee -a $LOG
+      endif
+    endif
+    
+    #Clean up
+    rm $WORKDIR/${PDBID}_OVER.mtz
+    rm $WORKDIR/${PDBID}_OVER.cif
+    rm $WORKDIR/${PDBID}_ISOT.mtz
+    rm $WORKDIR/${PDBID}_ISOT.cif
+  endif
 
   #Compare refinement results and decide on the B-factor type
   cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.bselect.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
   
   $TOOLS/bselect -v $WORKDIR/${PDBID}_ISOT.log $WORKDIR/${PDBID}_OVER.log $ONATOM > $WORKDIR/bselect.log 
   set BREFTYPE = `tail -n 1 $WORKDIR/bselect.log`
-  
-  #Report on the individual tests
-  if (`grep -c 'Taking the simplest model:' $WORKDIR/bselect.log` > 0 || `grep -A 9 'Hamilton test:' $WORKDIR/bselect.log | grep 'Best B-factor' | awk '{print $4}'` != 'NULL') then
-    if (`grep -c 'R-factor gap very similar in the' $WORKDIR/bselect.log` > 0) then 
-      echo " o Hamilton test overruled: isotropic B-factors selected" | tee -a $LOG
-    else if ($BREFTYPE == "ISOT") then
-      echo " o Conclusive Hamilton test: isotropic B-factors selected" | tee -a $LOG
-    else  
-      echo " o Conclusive Hamilton test: one overall B-factor selected" | tee -a $LOG
-    endif  
-  else
-    #Check the other tests (R-free Z-score)
-    echo " o Inconclusive Hamilton test, checking for overfitting:" | tee -a $LOG
-    set TBTYPE = `grep -A 9 'R-free/R Z-score test:' $WORKDIR/bselect.log | grep 'Best B-factor' | awk '{print $6}'`
-    if ($TBTYPE == 'NULL') then
-      echo "   * R-free/R Z-score test inconclusive" | tee -a $LOG
-    else if ($TBTYPE == "ISOT") then
-      echo "   * R-free/R Z-score test: isotropic B-factors preferred" | tee -a $LOG
-    else  
-      echo "   * R-free/R Z-score test: one overall B-factor preferred" | tee -a $LOG
-    endif 
-    #R-factor gap
-    set TBTYPE = `grep -A 5 'R-free difference test:' $WORKDIR/bselect.log | grep 'Best B-factor' | awk '{print $4}'`
-    if ($TBTYPE == 'NULL') then
-      echo "   * R-factor gap test inconclusive" | tee -a $LOG
-    else if ($TBTYPE == "ISOT") then
-      echo "   * R-factor gap test: isotropic B-factors preferred" | tee -a $LOG
-    else  
-      echo "   * R-factor gap test: one overall B-factor preferred" | tee -a $LOG      
-    endif 
-    #Exchange rate
-    set TBTYPE = `grep -A 6 'Exchange rate test:' $WORKDIR/bselect.log | grep 'Best B-factor' | awk '{print $4}'`
-    if ($TBTYPE == 'BOTH') then
-      echo "   * Exchange rate test inconclusive" | tee -a $LOG
-    else if ($TBTYPE == "ISOT") then
-      echo "   * Exchange rate test: isotropic B-factors preferred" | tee -a $LOG
-    else
-      echo "   * Exchange rate test: one overall B-factor preferred" | tee -a $LOG
-    endif 
-    #Show the conclusion
-    if ($BREFTYPE == "ISOT") then
-      echo " o Used combined tests to select isotropic B-factors" | tee -a $LOG
-    else
-      echo " o Used combined tests to select one overall B-factor" | tee -a $LOG
-    endif
-  endif
   
   #Setup the refinement
   if ($BREFTYPE == "OVER") then
@@ -6980,8 +7079,18 @@ else
 endif
 
 #Run HalBS
-$TOOLS/gethalogenbonds --xyzin $WORKDIR/${PDBID}_0cyc.cif    --id ${PDBID}_0cyc    > $WORKDIR/halbs_0cyc.log
-$TOOLS/gethalogenbonds --xyzin $WORKDIR/${PDBID}_besttls.cif --id ${PDBID}_besttls > $WORKDIR/halbs_besttls.log
+$TOOLS/gethalogenbonds \
+--xyzin $WORKDIR/${PDBID}_0cyc.cif \
+$DICTCMD \
+--id ${PDBID}_0cyc    > $WORKDIR/halbs_0cyc.log.tmp
+grep -v Creating $WORKDIR/halbs_0cyc.log.tmp > $WORKDIR/halbs_0cyc.log
+
+$TOOLS/gethalogenbonds \
+--xyzin $WORKDIR/${PDBID}_besttls.cif \
+$DICTCMD \
+--id ${PDBID}_besttls > $WORKDIR/halbs_besttls.log.tmp
+grep -v Creating $WORKDIR/halbs_besttls.log.tmp > $WORKDIR/halbs_besttls.log
+
 set ONHALB = `wc -l $WORKDIR/halbs_0cyc.log | awk '{print $1}'`
 if ($ONHALB > 0) then
   set OHALBS = `cut -d ',' -f 25 $WORKDIR/halbs_0cyc.log | awk '{SUM = SUM + $1} END {printf "%.3f", SUM/NR}'`
@@ -7028,7 +7137,7 @@ else
 endif  
 
 #See if both models could be cast to PDB
-if (GOTPDB == 0) then
+if ($GOTPDB == 0) then
   #Give warning
   echo "-Cannot convert models to PDB format" | tee -a $LOG
   echo " o Some validation and rebuilding options will be unavailable" | tee -a $LOG
@@ -8122,7 +8231,7 @@ eof
 ######################################## Flip side chains to optimise hydrogen bonding ###################################
 
   #Always do this if there is protein
-  if ($GOT_PROT == T && DOSCFLIP == 1) then
+  if ($GOT_PROT == T && $DOSCFLIP == 1) then
 
     echo "-Validation-based rebuilding" | tee -a $LOG
 
@@ -8436,7 +8545,7 @@ eof
   endif
 
   #Correct the total number of deleted waters
-  @ NWATDEL = (`echo "SELECT label_atom_id FROM atom_site WHERE label_comp_id = 'HOH';" | /zata/tools/mmCQL $WORKDIR/cache.cif | grep -c O` - `grep '^[AH][TE][OT]' $WORKDIR/${PDBID}_scfix.pdb | grep -c HOH`)
+  @ NWATDEL = (`$TOOLS/mmcql --format list -c "SELECT label_atom_id FROM atom_site WHERE label_comp_id = 'HOH';" $WORKDIR/cache.cif | grep -c O` - `grep '^[AH][TE][OT]' $WORKDIR/${PDBID}_scfix.pdb | grep -c HOH`)
   
   #Present a rebuilding summary.
   echo " " | tee -a $LOG
@@ -8465,14 +8574,19 @@ if (! -e $WORKDIR/${PDBID}_built.cif) then
 endif
 
 ################################################## (Re)build carbohydrates ###############################################
-if ($DOSUGARBUILD == 1 && $GOT_PROT == 'T') then
+if ($DOSUGARBUILD == 2 && $GOT_PROT == 'T') then
 
   #Start reporting
   echo " " | tee -a $LOG
   echo " " | tee -a $LOG
   echo "****** Carbohydrate (re)building ******" | tee -a $LOG
 
-  #Make a backup
+  #Reconstruct the glycan trees
+#   echo "-Running carbonanza" | tee -a $LOG
+#   $TOOLS/carbonanza -v \
+#   $WORKDIR/${PDBID}_built.cif \
+#   $DICTCMD \
+#   $WORKDIR/${PDBID}_carb.cif >>& $WORKDIR/carbonanza.log
   cp $WORKDIR/${PDBID}_built.cif $WORKDIR/${PDBID}_carb.cif
   
   #Run carbivore
@@ -8482,26 +8596,32 @@ if ($DOSUGARBUILD == 1 && $GOT_PROT == 'T') then
   
   $TOOLS/carbivore -v \
   --map-weight 40 \
+  --tree-type combined \
   $WORKDIR/${PDBID}_loopwhole.mtz \
   $WORKDIR/${PDBID}_carb.cif \
   $WORKDIR/${PDBID}_carbivore.cif >& $WORKDIR/carbivore.log
   
   #Copy over the output and anaylse results
   if (-e $WORKDIR/${PDBID}_carbivore.cif) then
-    cp $WORKDIR/${PDBID}_carbivore.cif $WORKDIR/${PDBID}_built.cif
-    
+
     #Analyse results
-    echo " o Carbohydrate tree processing results" | tee -a $LOG
-    echo "   * Whole-trees built: " `grep 'whole trees built:' $WORKDIR/carbivore.log | awk '{print $6}'` | tee -a $LOG
-    echo "   * Trees rebuilt    : " `grep 'trees rebuilt:'     $WORKDIR/carbivore.log | awk '{print $5}'` | tee -a $LOG
-    echo "   * Trees extended   : " `grep 'trees extended:'    $WORKDIR/carbivore.log | awk '{print $5}'` | tee -a $LOG
-    echo " o Overall results" | tee -a $LOG
-    echo "   * Carbohydrate residues added  : " `grep 'carbohydrates built:'   $WORKDIR/carbivore.log | awk '{print $5}'` | tee -a $LOG
-    echo "   * Carbohydrate residues deleted: " `grep 'carbohydrates deleted:' $WORKDIR/carbivore.log | awk '{print $5}'` | tee -a $LOG
-    echo "   * Overlapping waters deleted   : " `grep 'waters deleted:'        $WORKDIR/carbivore.log | awk '{print $5}'` | tee -a $LOG
+    set BUILTTREES = `grep -c branch $WORKDIR/${PDBID}_carbivore-report.txt`
+    echo " o  carbohydrate trees rebuilt        : " $BUILTTREES | tee -a $LOG
+    if ($BUILTTREES > 0) then
+      #Use this model downstrean and make sure there is additiona refinement
+      set BUILT = 1
+      cp $WORKDIR/${PDBID}_carbivore.cif $WORKDIR/${PDBID}_built.cif
+      echo "   * Intitial residues in glycan trees: " `$TOOLS/cif-grep -c -i '_pdbx_branch_scheme.asym_id' . $WORKDIR/${PDBID}_prepped.cif`   | tee -a $LOG
+      echo "   * Accepted residues in glycan trees: " `$TOOLS/cif-grep -c -i '_pdbx_branch_scheme.asym_id' . $WORKDIR/${PDBID}_carbivore.cif` | tee -a $LOG
+    endif  
+#     echo "   * Trees extended   : " `grep 'trees extended:'    $WORKDIR/carbivore.log | awk '{print $5}'` | tee -a $LOG
+#     echo " o Overall results" | tee -a $LOG
+#     echo "   * Carbohydrate residues added  : " `grep 'carbohydrates built:'   $WORKDIR/carbivore.log | awk '{print $5}'` | tee -a $LOG
+#     echo "   * Carbohydrate residues deleted: " `grep 'carbohydrates deleted:' $WORKDIR/carbivore.log | awk '{print $5}'` | tee -a $LOG
+#     echo "   * Overlapping waters deleted   : " `grep 'waters deleted:'        $WORKDIR/carbivore.log | awk '{print $5}'` | tee -a $LOG
     
     #Correct number of deleted waters
-    @ NWATDEL = (`echo "SELECT label_atom_id FROM atom_site WHERE label_comp_id = 'HOH';" | /zata/tools/mmCQL $WORKDIR/cache.cif | grep -c O` - `echo "SELECT label_atom_id FROM atom_site WHERE label_comp_id = 'HOH';" | /zata/tools/mmCQL $WORKDIR/${PDBID}_built.cif | grep -c O`)
+    @ NWATDEL = (`$TOOLS/mmcql --format list -c "SELECT label_atom_id FROM atom_site WHERE label_comp_id = 'HOH';" $WORKDIR/cache.cif | grep -c O` - `$TOOLS/mmcql --format list -c "SELECT label_atom_id FROM atom_site WHERE label_comp_id = 'HOH';" $WORKDIR/${PDBID}_built.cif | grep -c O`)
   else
     #Report error
     echo " o Carbivore failed, no carbohydrates (rebuilt)" | tee -a $LOG
@@ -8667,7 +8787,7 @@ if ($FITLIGANDS == 1) then
 #         endif
 
         #Get liggand sizes in number of heavy atoms
-        echo `echo "SELECT number_atoms_nh FROM chem_comp WHERE id = '$LIG';" | $TOOLS/mmCQL $LIGREST | tail -n 1` $LIG $LIGREST >> $WORKDIR/liglist.txt
+        echo `$TOOLS/mmcql --format list -c "SELECT number_atoms_nh FROM chem_comp WHERE id = '$LIG';" $LIGREST` $LIG $LIGREST >> $WORKDIR/liglist.txt
       else
         #Give error message
         echo " o There are no restraints available for $LIG. Please, provide a restraint file." | tee -a $LOG
@@ -8689,26 +8809,25 @@ if ($FITLIGANDS == 1) then
       cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.findandfit.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
       
       echo "Trying to fit $LIG" >> $WORKDIR/ligfit.log
-      findandfit -v \
+      $TOOLS/findandfit -v \
       --mtzin $WORKDIR/${PDBID}_built.mtz \
       --xyzin $WORKDIR/${PDBID}_ligfit.cif \
       --restraint-dict $LIGREST \
       --lig $LIG \
-      --name ${PDBID}_${LIG} \
+      --pdb-redo-data $TOOLS/pdb-redo-data.cif \
+      --conformers 10 \
       --samplingrate 1.5 \
-      --growingpercentile 0.95 \
-      --nrblobs $NBLOBS \
-      --output ${PDBID}_$LIG.cif \
-      --outputpath $WORKDIR/ligfit >& $WORKDIR/ligfit_$LIG.log
-      
+      --growingpercentile 0.90 \
+      --output $WORKDIR/ligfit/${PDBID}_$LIG.cif >& $WORKDIR/ligfit_$LIG.log
+
       #Append the log file
       set TFITTED = `grep -c Placed $WORKDIR/ligfit_$LIG.log`
       cat $WORKDIR/ligfit_$LIG.log >> $WORKDIR/ligfit.log
       
       #Was a ligand added?
-      if (-e $WORKDIR/ligfit/${PDBID}_${LIG}_afterjigglefit_allligs_inclwaters.cif && $TFITTED > 0) then
+      if (-e $WORKDIR/ligfit/${PDBID}_${LIG}.cif && $TFITTED > 0) then
         #Report
-        cp $WORKDIR/ligfit/${PDBID}_${LIG}_afterjigglefit_allligs_inclwaters.cif $WORKDIR/${PDBID}_ligfit.cif
+        cp $WORKDIR/ligfit/${PDBID}_${LIG}.cif $WORKDIR/${PDBID}_ligfit.cif
         echo " o Fitted $TFITTED copies of $LIG" | tee -a $LOG
         
         #Setup downstream analysis
@@ -8728,131 +8847,6 @@ if ($FITLIGANDS == 1) then
 
          
           @ FITCOUNT = ($FITCOUNT + $TFITTED)
-#           #Do some renumbering
-#           while (`grep -c "z$RESNUM" $WORKDIR/${PDBID}_ligfit.pdb` > 0)
-#             @ RESNUM = ($RESNUM + 1)
-#           end
-#           grep '^HETATM' $FITTED | sed "s/A   1/z$RESNUM/g" > $WORKDIR/append.pdb
-#          
-#           #Append the ligand
-#           cat $WORKDIR/${PDBID}_ligfit.pdb $WORKDIR/append.pdb | grep -v '^END' > $WORKDIR/newlig.pdb
-#           #Remove offending waters
-#           if ($NWATER > 0 ) then 
-#             echo "Removing waters for candidate $RESNUM" >> $WORKDIR/ligfit.log
-#             cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.centrifuge.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-#             
-#             $TOOLS/centrifuge \
-#             <<eof >& $WORKDIR/centrifuge_lig.log
-#               #Settings
-#               InputPDB = "$WORKDIR/newlig.pdb"
-#               PDBOutputFilename = "$WORKDIR/newlig_dry.pdb"
-#               MessageFilename = "$WORKDIR/newlig_centrifuge.msg"
-#               XMLOutputFilename = "$WORKDIR/newlig_centrifuge.xml"
-#       
-#               #residue names that represent waters. Default HOH WAT H2O EAU
-#               WaterNames = HOH
-#               #Reject waters with negative density (i.e. only clashing waters)
-#               WaterRejectionThreshold = 0.00
-#               #If true, everything except Dummies and recognised Waters is placed in the density map, default False
-#               PlaceNonSolventInDensity = true
-#               #Colon separated list of water ids which won't be affected by the methods of centrifuge
-#               UnaffectedWaterList = "$H2O_KEEP"
-#               #InputMap or here: input mtz
-#               InputMTZ = "$WORKDIR/${PDBID}_loopwhole.mtz"
-#               FWTLabel = FWT
-#               PHIWTLabel = PHWT
-#               SpaceGroup = "$SPACEGROUP"
-#               XtalCell = "$AAXIS $BAXIS $CAXIS $ALPHA $BETA $GAMMA"
-#               DictionaryFilename = "$TOOLS/AArotaSS.XYZ"
-#               SymmetryFilename = "$CLIBD/syminfo.lib"
-# 
-#               #type of method used to determine the density fit
-#               CFitTarget::Type = accelerated
-#               UniformAtomBFactor = "$BBUILD"
-#               UniformAtomRadius = 0.74
-#               UseAtomicB = True
-# 
-#               #Factor with which to invert the density of placed atoms
-#               AntiBumpFactor = 2.0
-# 
-#               #Program information
-#               ProgramName = centrifuge
-#               MessageLevel = 6
-#               AbortLevel = 8
-#               KeepPDBheaderInfo = true
-#               StoreOriginalChainAndSegID = true
-#               SelectByOrigChainID = true
-#               KeepSideChain = true
-#               KeepFragmentLongerThan = 0
-#               TrustWaters = false
-#               RemoveBasedOnDensity = true
-# eof
-#             cat $WORKDIR/centrifuge_lig.log >> $WORKDIR/ligfit.log
-#           else
-#             cp $WORKDIR/newlig.pdb $WORKDIR/newlig_dry.pdb
-# #           endif
-# 
-#           #Real-space refine against 2mFo-DFc
-#           echo "Refining candidate $RESNUM" >> $WORKDIR/ligfit.log
-#           cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software."coot-mini-rsr".used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
-#           
-#           echo "coot-mini-rsr --pdbin $WORKDIR/newlig_dry.pdb --hklin $WORKDIR/${PDBID}_loopwhole.mtz --f FWT --phi PHWT --pdbout $WORKDIR/newlig_refi.pdb --chain-id z --residues-around $RESNUM --weight 40 --rama --torsions --no-trans-peptide-restraints --correlations --dictin $LIGREST"  >> $WORKDIR/ligfit.log
-# 
-#           coot-mini-rsr \
-#           --pdbin $WORKDIR/newlig_dry.pdb \
-#           --hklin $WORKDIR/${PDBID}_loopwhole.mtz \
-#           --f FWT --phi PHWT \
-#           --pdbout $WORKDIR/newlig_refi.pdb \
-#           --chain-id z --residues-around $RESNUM \
-#           --weight 40 \
-#           --rama --torsions --no-trans-peptide-restraints \
-#           --correlations \
-#           --dictin $LIGREST > $WORKDIR/ligref.log
-#           
-#           #Calculate density fit on updated maps
-#           $TOOLS/density-fitness \
-#           --use-auth-ids \
-#           --sampling-rate 1.5 \
-#           --hklin $PDBID.mtz \
-#           $SFTYPE \
-#           --recalc \
-#           --xyzin $WORKDIR/newlig_refi.pdb \
-#           -o $WORKDIR/density_$RESNUM.eds \
-#           $DICTCMD >>& $WORKDIR/density_ligfit.log 
-#         
-#           #Save the scores
-#           grep "${CHID}_${RESNUM}[[:space:]]" $WORKDIR/density_$RESNUM.eds >> $WORKDIR/ligfit.scores         
-
-#           #Decide whether to keep the ligand (remove ligands with too low correlation, too low RSCC, too low EDIAm, or too high RSR)
-#           if (`grep -A 40 'Residue Correlation Table:' $WORKDIR/ligref.log | grep $LIG | grep -e "$RESNUM" | awk '{if ($4 < 0.53) {print "reject"} else {print "accept"}}'` == "accept" && `grep "${CHID}_${RESNUM}[[:space:]]" $WORKDIR/density_$RESNUM.eds | awk '{if ($2 < 0.21 && (($4 > 0.76 && $6 > 0.50) || ($4 + $6 > 1.1) || ($2 < 0.185 && ($4 + $6 > 1.0)))) {print 1} else {print 0}}'` == 1) then
-#                 
-#             #keep the new ligand
-#             set BUILT = 1
-#             cp $WORKDIR/newlig_refi.pdb $WORKDIR/${PDBID}_ligfit.pdb
-#             
-#             #Append it to the validation list
-#             echo "   * Accepting candidate $FITCOUNT" | tee -a $LOG
-#             if (`echo $NLIG_LIST | grep -c ':'` == 0) then
-#               set NLIG_LIST = ':'
-#             endif
-#             set NLIG_LIST = "${NLIG_LIST}$CHID$RESNUM :"  
-#           
-#             #Occupancy refine the new ligand
-#             @ OCCREF = ($OCCREF + 1)
-#             echo "occupancy group id $OCCREF chain $CHID residue $RESNUM" >> $WORKDIR/occupancy_cmd.refmac
-# 
-#             #Increase counter
-#             @ RESNUM   = ($RESNUM + 1)
-#             @ ACCEPTED = ($ACCEPTED + 1)
-#           
-#           else
-#             #Keep using the previous model
-#             echo "   * Rejecting candidate $FITCOUNT" | tee -a $LOG
-#           endif
-          
-          #Consolidate log files
-#           mv  $WORKDIR/ligfit.log $WORKDIR/ligfit.old
-#           cat $WORKDIR/ligfit.old $WORKDIR/ligref.log > $WORKDIR/ligfit.log
       else
         echo " o Could not find a good place to fit $LIG" | tee -a $LOG
       endif        
@@ -8933,7 +8927,7 @@ else
 
     #Clean the restraints
     #Make list of all atoms with alternates
-    echo "SELECT auth_asym_id,auth_seq_id,auth_atom_id FROM atom_site WHERE label_alt_id IS NOT NULL;" | $TOOLS/mmCQL $WORKDIR/${PDBID}_built.cif >& $WORKDIR/allalt.list
+    $TOOLS/mmcql --format list -c "SELECT auth_asym_id,auth_seq_id,auth_atom_id FROM atom_site WHERE label_alt_id IS NOT NULL;" $WORKDIR/${PDBID}_built.cif >& $WORKDIR/allalt.list
     
     #Loop over all restraints
     foreach REST (`cat $WORKDIR/bphbond.tmp | tr ' ' '_'`) 
@@ -9640,7 +9634,11 @@ else
   endif
 
   #Run HalBS
-  $TOOLS/gethalogenbonds --xyzin $WORKDIR/${PDBID}_final.cif --id ${PDBID}_final > $WORKDIR/halbs_final.log
+  $TOOLS/gethalogenbonds \
+  --xyzin $WORKDIR/${PDBID}_final.cif \
+  $DICTCMD \
+  --id ${PDBID}_final > $WORKDIR/halbs_final.log.tmp
+  grep -v Creating $WORKDIR/halbs_final.log.tmp > $WORKDIR/halbs_final.log
   set FNHALB = `wc -l $WORKDIR/halbs_final.log | awk '{print $1}'`
   if ($FNHALB > 0) then
     set FHALBS = `cut -d ',' -f 25 $WORKDIR/halbs_final.log | awk '{SUM = SUM + $1} END {printf "%.3f", SUM/NR}'`
@@ -9994,69 +9992,72 @@ if ($GOT_NUC == 'T') then
   echo "Dinucleotide conformation rmsd     : $ODNRMSD $NDNRMSD $FDNRMSD"         | tee -a $LOG
 endif
 
-
-#Give the side chain details
-echo " " | tee -a $LOG
-echo " " | tee -a $LOG
-echo "****** Protein structure changes ******" | tee -a $LOG
-
-#Set fallback values
-set NDROTA = 'NA'
-set HBFLIP = 'NA'
-set STFLIP = 'NA'
-  
-#!!!! Change to using cache.cif  
-if ($GOTPDB == 1) then
-  echo "-Analysing model changes" | tee -a $LOG
-  $TOOLS/modelcompare -v \
-  -pdb1 $WORKDIR/${PDBID}_0cyc.pdb \
-  -pdb2 $WORKDIR/${PDBID}_final.pdb \
-  -output-name $PDBID \
-  -output-dir $WORKDIR > $WORKDIR/modelcompare.log
-endif  
-  
-if (! -e $WORKDIR/${PDBID}_coot_tour.py) then
-  #Give error message
-  echo " o Problem with modelcompare" | tee -a $LOG
-  echo "COMMENT: modelcompare: error in model comparison" >> $DEBUG
-  echo "PDB-REDO,$PDBID"                                  >> $DEBUG
-  
-  #Fill in the missing values
+#Set fallback values for removed modelcompare functionality
   set HBFLIP  = 'NA'
   set NDROTA  = 'NA'
-  set CTFLIP  = 'NA'
-  set TCFLIP  = 'NA'
-  set PEPFIX  = 'NA'
-  set PEPDIS  = 'NA'
-  set NWATDEL = 'NA'
-else  
-  #Rename the COOT scripts
-  mv $WORKDIR/${PDBID}_coot_tour.py  $WORKDIR/${PDBID}_final.py
-  mv $WORKDIR/${PDBID}_coot_tour.scm $WORKDIR/${PDBID}_final.scm
+  set NWATDEL = 'NA'  
+  set STFLIP  = 'NA'
   
-  #Count things
-  set HBFLIP  = `grep 'H-bond flips marked' $WORKDIR/modelcompare.log | awk '{print $1}'`
-  set NDROTA  = `grep 'changed rotamers marked' $WORKDIR/modelcompare.log | awk '{print $1}'`
-  set CTFLIP  = `grep 'cis-trans isomerisations marked' $WORKDIR/modelcompare.log | awk '{print $1}'`
-  set TCFLIP  = `grep 'trans-cis isomerisations marked' $WORKDIR/modelcompare.log | awk '{print $1}'`
-  set PEPFIX  = `grep 'removed distorted peptides marked' $WORKDIR/modelcompare.log | awk '{print $1}'`
-  set PEPDIS  = `grep 'introduced distorted peptides marked' $WORKDIR/modelcompare.log | awk '{print $1}'`
-  set NWATDEL = `grep 'removed waters marked' $WORKDIR/modelcompare.log | awk '{print $1}'`
-endif
+# #Give the side chain details
+# echo " " | tee -a $LOG
+# echo " " | tee -a $LOG
+# echo "****** Protein structure changes ******" | tee -a $LOG
 
 
-#Give the summary
-echo " " | tee -a $LOG
-echo "Changed rotamers     : $NDROTA" | tee -a $LOG
-echo "Hydrogen bond flips  : $HBFLIP" | tee -a $LOG
-echo "Cis-trans flips      : $CTFLIP" | tee -a $LOG
-echo "Trans-cis flips      : $TCFLIP" | tee -a $LOG
-echo "Peptides fixed       : $PEPFIX" | tee -a $LOG
-echo "Peptides distorted   : $PEPDIS" | tee -a $LOG
-echo " " | tee -a $LOG
+  
+# #!!!! Change to using cache.cif  
+# if ($GOTPDB == 1) then
+#   echo "-Analysing model changes" | tee -a $LOG
+#   $TOOLS/modelcompare -v \
+#   -pdb1 $WORKDIR/${PDBID}_0cyc.pdb \
+#   -pdb2 $WORKDIR/${PDBID}_final.pdb \
+#   -output-name $PDBID \
+#   -output-dir $WORKDIR > $WORKDIR/modelcompare.log
+# endif  
+#   
+# if (! -e $WORKDIR/${PDBID}_coot_tour.py) then
+#   #Give error message
+#   echo " o Problem with modelcompare" | tee -a $LOG
+#   echo "COMMENT: modelcompare: error in model comparison" >> $DEBUG
+#   echo "PDB-REDO,$PDBID"                                  >> $DEBUG
+#   
+#   #Fill in the missing values
+#   set HBFLIP  = 'NA'
+#   set NDROTA  = 'NA'
+#   set CTFLIP  = 'NA'
+#   set TCFLIP  = 'NA'
+#   set PEPFIX  = 'NA'
+#   set PEPDIS  = 'NA'
+#   set NWATDEL = 'NA'
+# else  
+#   #Rename the COOT scripts
+#   mv $WORKDIR/${PDBID}_coot_tour.py  $WORKDIR/${PDBID}_final.py
+#   mv $WORKDIR/${PDBID}_coot_tour.scm $WORKDIR/${PDBID}_final.scm
+#   
+#   #Count things
+#   set HBFLIP  = `grep 'H-bond flips marked' $WORKDIR/modelcompare.log | awk '{print $1}'`
+#   set NDROTA  = `grep 'changed rotamers marked' $WORKDIR/modelcompare.log | awk '{print $1}'`
+#   set CTFLIP  = `grep 'cis-trans isomerisations marked' $WORKDIR/modelcompare.log | awk '{print $1}'`
+#   set TCFLIP  = `grep 'trans-cis isomerisations marked' $WORKDIR/modelcompare.log | awk '{print $1}'`
+#   set PEPFIX  = `grep 'removed distorted peptides marked' $WORKDIR/modelcompare.log | awk '{print $1}'`
+#   set PEPDIS  = `grep 'introduced distorted peptides marked' $WORKDIR/modelcompare.log | awk '{print $1}'`
+#   set NWATDEL = `grep 'removed waters marked' $WORKDIR/modelcompare.log | awk '{print $1}'`
+# endif
+# 
+# 
+# #Give the summary
+# echo " " | tee -a $LOG
+# echo "Changed rotamers     : $NDROTA" | tee -a $LOG
+# echo "Hydrogen bond flips  : $HBFLIP" | tee -a $LOG
+# echo "Cis-trans flips      : $CTFLIP" | tee -a $LOG
+# echo "Trans-cis flips      : $TCFLIP" | tee -a $LOG
+# echo "Peptides fixed       : $PEPFIX" | tee -a $LOG
+# echo "Peptides distorted   : $PEPDIS" | tee -a $LOG
+# echo " " | tee -a $LOG
 
 
 #Give the density fit details
+echo " " | tee -a $LOG
 echo " " | tee -a $LOG
 echo "****** Electron density map analyses ******" | tee -a $LOG
 
@@ -10077,10 +10078,10 @@ fitness:
 
   if (`cat $WORKDIR/jobs.log | wc -l` < $NPROC) then
 
-    echo "- Running density-fitness for the $STAGE model" | tee -a $LOG
+    echo "-Running density-fitness for the $STAGE model" | tee -a $LOG
     
     #Run density-fitness
-    $TOOLS/density-fitness -v\
+    $TOOLS/density-fitness -v \
     --use-auth-ids \
     --sampling-rate 1.5 \
     --hklin $WORKDIR/${PDBID}_$STAGE.mtz \
@@ -10200,21 +10201,10 @@ echo " " | tee -a $LOG
 echo "****** Ligand validation ******" | tee -a $LOG
 
 #Add back mmcif records for YASARA compatibility
-cp $WORKDIR/${PDBID}_0cyc.cif $WORKDIR/${PDBID}_0cyc_nodesc.cif
-if (`grep -c '^_struct_conn.id' $WORKDIR/${PDBID}_0cyc_nodesc.cif` > 0) then
-  echo "SELECT id,ptnr1_label_comp_id,ptnr2_label_comp_id FROM struct_conn;" | $TOOLS/mmCQL $WORKDIR/${PDBID}_0cyc_nodesc.cif | tail -n +2 | awk '{print "UPDATE struct_conn SET ptnr1_auth_comp_id = ~"$2"~ WHERE id = "$1"; %UPDATE struct_conn SET ptnr2_auth_comp_id = ~"$3"~ WHERE id = "$1";"}' | tr '~' "'" | tr '%' '\n' > $WORKDIR/0cyc.cql
-endif
-echo "UPDATE entity SET pdbx_description = '?';" >> $WORKDIR/0cyc.cql
-
-$TOOLS/mmCQL -V --force --script $WORKDIR/0cyc.cql $WORKDIR/${PDBID}_0cyc_nodesc.cif $WORKDIR/${PDBID}_0cyc.cif >>& $WORKDIR/mmCQL.log
-
-cp $WORKDIR/${PDBID}_final.cif $WORKDIR/${PDBID}_final_nodesc.cif
-if (`grep -c '^_struct_conn.id' $WORKDIR/${PDBID}_final_nodesc.cif` > 0) then
-  echo "SELECT id,ptnr1_label_comp_id,ptnr2_label_comp_id FROM struct_conn;" | $TOOLS/mmCQL $WORKDIR/${PDBID}_final_nodesc.cif | tail -n +2 | awk '{print "UPDATE struct_conn SET ptnr1_auth_comp_id = ~"$2"~ WHERE id = "$1"; %UPDATE struct_conn SET ptnr2_auth_comp_id = ~"$3"~ WHERE id = "$1";"}' | tr '~' "'" | tr '%' '\n' > $WORKDIR/final.cql
-endif
-echo "UPDATE entity SET pdbx_description = '?';" >> $WORKDIR/final.cql
-
-$TOOLS/mmCQL -V --force --script $WORKDIR/final.cql $WORKDIR/${PDBID}_final_nodesc.cif $WORKDIR/${PDBID}_final.cif  >>& $WORKDIR/mmCQL.log
+cp $WORKDIR/${PDBID}_0cyc.cif $WORKDIR/${PDBID}_0cyc_yasara.cif
+$TOOLS/mmcql -c "DROP TABLE IF EXISTS struct_conn;" $WORKDIR/${PDBID}_0cyc_yasara.cif 
+cp $WORKDIR/${PDBID}_final.cif $WORKDIR/${PDBID}_final_yasara.cif
+$TOOLS/mmcql -c "DROP TABLE IF EXISTS struct_conn;" $WORKDIR/${PDBID}_final_yasara.cif 
 
 #Make sure there are existing ligands
 if (`grep -c "_ligand.asym_id" $WORKDIR/$PDBID.extracted` > 0) then
@@ -10227,14 +10217,14 @@ if (`grep -c "_ligand.asym_id" $WORKDIR/$PDBID.extracted` > 0) then
     cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.YASARA.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
     
     #Add back the _entity.pdbx_description records
-    foreach LIG (`echo "SELECT pdb_strand_id,pdb_seq_num,pdb_ins_code FROM ligand; " | $TOOLS/mmCQL $WORKDIR/$PDBID.extracted | tail -n +2 | tr "\t" "_"`)
+    foreach LIG (`$TOOLS/mmcql --format list -c "SELECT pdb_strand_id,pdb_seq_num,pdb_ins_code FROM ligand; " $WORKDIR/$PDBID.extracted | tr "|" "_"`)
 
       #Specify the residue
       set RESNUM = `echo $LIG | cut -d '_' -f 2`
       set CHID   = `echo $LIG | cut -d '_' -f 1`
       
       #Only run for existing ligands
-      if (`echo "SELECT auth_comp_id FROM atom_site WHERE auth_asym_id = '$CHID' AND auth_seq_id = '$RESNUM';" | $TOOLS/mmCQL $WORKDIR/${PDBID}_c2f.cif | wc -l` > 1) then
+      if (`$TOOLS/mmcql --format list -c "SELECT auth_comp_id FROM atom_site WHERE auth_asym_id = '$CHID' AND auth_seq_id = '$RESNUM';" $WORKDIR/${PDBID}_c2f.cif | wc -l` > 0) then
 
         #Return label for job launching
 ligvalrunning:
@@ -10248,10 +10238,10 @@ ligvalrunning:
           echo " o Validating residue $CHID $RESNUM" | tee -a $LOG
 
           $YASARA -txt $TOOLS/ligval.mcr \
-          "oripdb='$WORKDIR/${PDBID}_0cyc.cif'" \
-          "newpdb='$WORKDIR/${PDBID}_final.cif'" \
+          "oripdb='$WORKDIR/${PDBID}_0cyc_yasara.cif'" \
+          "newpdb='$WORKDIR/${PDBID}_final_yasara.cif'" \
           "resnum='$RESNUM'" \
-          "chid='$CHID'" > $WORKDIR/ligval_$LIG.log &
+          "chid='$CHID'" > $WORKDIR/ligval_${LIG}_.log &
           
           limit cputime unlimited
         else
@@ -10300,7 +10290,7 @@ ligvalsolorunning:
 
         #There is a hanging underscore in the file name. That is because there could be an insertion code for ligands.
         $YASARA -txt $TOOLS/ligval_solo.mcr \
-        "newpdb='$WORKDIR/${PDBID}_final.cif'" \
+        "newpdb='$WORKDIR/${PDBID}_final_yasara.cif'" \
         "resnum='$RESNUM'" \
         "chid='$CHID'" > $WORKDIR/ligval_${LIG}_.log &
       else
@@ -10325,9 +10315,9 @@ foreach LIGLOG ( `find $WORKDIR -name "ligval_*.log"` )
     rm $LIGLOG
   else
     #Catch residues that have gone missing (by renumbering or being integrated in a carbohydrate tree)
-    if (`echo "SELECT occupancy FROM atom_site WHERE auth_asym_id = '$CHID' AND auth_seq_id = '$RESNUM';" | $TOOLS/mmCQL $WORKDIR/${PDBID}_final.cif | wc -l` > 1) then 
+    if (`$TOOLS/mmcql --format list -c "SELECT occupancy FROM atom_site WHERE auth_asym_id = '$CHID' AND auth_seq_id = '$RESNUM';" $WORKDIR/${PDBID}_final.cif | wc -l` > 0) then 
       #Add the halogen bond information
-      if (-e $WORKDIR/halbs_0cyc.log) then
+      if (-e $WORKDIR/halbs_0cyc.log && `grep -c 'ori' $LIGLOG` > 0) then
         echo " " >> $LIGLOG
         echo "Start xbond ori" >> $LIGLOG
         grep "$RESNUM,$CHID," halbs_0cyc.log | tr ',' ' ' | awk '{print "  to Residue",$15,$17,$16,": 1 interactions with HalBS",$25}' >> $LIGLOG
@@ -10342,7 +10332,7 @@ foreach LIGLOG ( `find $WORKDIR -name "ligval_*.log"` )
         echo  " " >> $LIGLOG
       endif
       #Add the final occupancies
-      set OCCUPANCY = `echo "SELECT occupancy FROM atom_site WHERE auth_asym_id = '$CHID' AND auth_seq_id = '$RESNUM';" | $TOOLS/mmCQL $WORKDIR/${PDBID}_final.cif | grep -v occupancy | awk '{SUM = SUM +$1} END {printf "%1.2f", SUM/NR}'`
+      set OCCUPANCY = `$TOOLS/mmcql --format list -c "SELECT occupancy FROM atom_site WHERE auth_asym_id = '$CHID' AND auth_seq_id = '$RESNUM';" $WORKDIR/${PDBID}_final.cif | awk '{SUM = SUM +$1} END {printf "%1.2f", SUM/NR}'`
       echo "Final average occupancy: $OCCUPANCY" >> $LIGLOG
     else
       echo " o Residue $CHID $RESNUM was renumbered or removed" | tee -a $LOG
@@ -10360,14 +10350,14 @@ endif
 #Report the validation results
 
 #Loop over existing ligands
-if (`find $WORKDIR -name "ligval_*.log" | wc -l` > 0) then
-  foreach LIG (`echo "SELECT pdb_strand_id,pdb_seq_num,pdb_ins_code,mon_id FROM ligand; " | $TOOLS/mmCQL $WORKDIR/$PDBID.extracted | tail -n +2 | tr "\t" "_"`)
+if (`find $WORKDIR -name "ligval_*.log" | wc -l` > 0 && `grep -c ligand $WORKDIR/$PDBID.extracted` > 0) then
+  foreach LIG (`$TOOLS/mmcql --format list -c "SELECT pdb_strand_id,pdb_seq_num,mon_id,pdb_ins_code FROM ligand;" $WORKDIR/$PDBID.extracted | tr "|" "_"`)
 
     #Specify the residue
     set RESNUM = `echo $LIG | cut -d '_' -f 2`
     set CHID   = `echo $LIG | cut -d '_' -f 1`
-    set INS    = `echo $LIG | cut -d '_' -f 3`
-    set RESID  = `echo $LIG | cut -d '_' -f 4`
+    set INS    = `echo $LIG | cut -d '_' -f 4`
+    set RESID  = `echo $LIG | cut -d '_' -f 3`
     
     #Only run for existing ligands that were successfully validated
     if (-e $WORKDIR/ligval_${CHID}_${RESNUM}_${INS}.log) then
@@ -10472,8 +10462,8 @@ foreach LIG (`echo $NLIG_LIST | sed 's/:/ /g'`)
   set RESNUM = `echo $LIG | cut -d '_' -f 2`
   set CHID   = `echo $LIG | cut -d '_' -f 1`
   set INS    = ""
-  set RESID  = `echo "SELECT auth_comp_id FROM atom_site WHERE auth_asym_id = '$CHID' AND auth_seq_id = $RESNUM;" | $TOOLS/mmCQL $WORKDIR/${PDBID}_final.cif | tail -n 1`
-
+  set RESID  = `$TOOLS/mmcql --format list -c "SELECT auth_comp_id FROM atom_site WHERE auth_asym_id = '$CHID' AND CAST(auth_seq_id AS int) = $RESNUM;" $WORKDIR/${PDBID}_final.cif | tail -n 1`
+  
   #Get real-space values
   set LIGRSRF  = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.density_fit.real_space_Rfactor" | awk '{printf "%5.3f", $1}'` 
   set LIGCCF   = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.density_fit.real_space_correlation" | awk '{printf "%5.3f", $1}'` 
@@ -10497,7 +10487,7 @@ foreach LIG (`echo $NLIG_LIST | sed 's/:/ /g'`)
   set NHBOF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.H_bonds_count" | awk '{printf "%.0f", $1}'`  
 
   #Bumps
-  set NBUMPO = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.bumps_count" | awk '{printf "%.0f", $1}'`
+  set NBUMPF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .original_model.interactions.bumps_count" | awk '{printf "%.0f", $1}'`
 
   #Hydrophobic contacts and strength
   set SHYPHF = `cat $WORKDIR/${PDBID}_ligval.json | jq ".Ligand_validation_data | .[] | select(.pdb.seqNum == $RESNUM and .pdb.insCode == "\""$INS"\"" and .pdb.compID == "\""$RESID"\"" and .pdb.strandID == "\""$CHID"\"") | .pdb_redo_model.interactions.hydrophobic_strength" | awk '{printf "%5.3f", $1}'`  
@@ -10669,17 +10659,14 @@ $WORKDIR/${PDBID}_final.cif >& $WORKDIR/cif-merge.log
 
 #Cif-merge was successful may need to reset the cell dimensions
 if ($CELLUPDATE == 1) then
-  
+
   #Reset the cell dimensions again
-  cp $WORKDIR/${PDBID}_final.cif $WORKDIR/${PDBID}_semifinal.cif
+  $TOOLS/mmcql -c "UPDATE cell SET length_a = $RAAXIS, length_b = $RBAXIS, length_c = $RCAXIS, angle_alpha = $RALPHA, angle_beta = $RBETA, angle_gamma = $RGAMMA;" $WORKDIR/${PDBID}_final.cif
   
-  $TOOLS/mmCQL -V --force \
-  $WORKDIR/${PDBID}_semifinal.cif \
-  $WORKDIR/${PDBID}_final.cif \
-  <<eof >>& $WORKDIR/mmCQL.log
-  UPDATE cell SET length_a = $RAAXIS, length_b = $RBAXIS, length_c = $RCAXIS, angle_alpha = $RALPHA, angle_beta = $RBETA, angle_gamma = $RGAMMA;
-eof
 endif
+
+#Mark the model as having been made by pdb-redo
+$TOOLS/mmcql -c "INSERT INTO software (pdbx_ordinal,classification,name,version,description) VALUES ((SELECT MAX(pdbx_ordinal) + 1 FROM software),'refinement','PDB-REDO','$VERSION','Model optimisation through refinement, rebuilding and validation');" $WORKDIR/${PDBID}_final.cif 
 
 
 set TOUTPUT = "$OUTPUT.tmp"
@@ -10699,10 +10686,6 @@ cp $WORKDIR/${PDBID}_final.cif            $TOUTPUT/
 cp $WORKDIR/${PDBID}_final_residual.cif   $TOUTPUT/
 cp $WORKDIR/${PDBID}_final.mtz            $TOUTPUT/
 cp $WORKDIR/${PDBID}_final.json           $TOUTPUT/
-if (-e $WORKDIR/${PDBID}_final.scm) then
-  cp $WORKDIR/${PDBID}_final.scm          $TOUTPUT/
-  cp $WORKDIR/${PDBID}_final.py           $TOUTPUT/
-endif  
 cp $WORKDIR/versions.json                 $TOUTPUT/
 if (-e $WORKDIR/${PDBID}_ligval.json) then
   cp $WORKDIR/${PDBID}_ligval.json        $TOUTPUT/
@@ -10833,19 +10816,25 @@ echo -n "$ODNRMSD $NDNRMSD $FDNRMSD $OBPGRMSZ $NBPGRMSZ $FBPGRMSZ $TOBPGRMSZ $TF
 echo    "$OCLASH $NCLASH $FCLASH $TOCLASH $TFCLASH $ONHALB $NNHALB $FNHALB $OHALBS $NHALBS $FHALBS $OZCARB $NZCARB $FZCARB $ORCARB $NRCARB $FRCARB $TOZCARB $TFZCARB"  >> $WORKDIR/data.txt 
 cp $WORKDIR/data.txt $TOUTPUT/
 if ($?COMMENT) then
-  python3 $TOOLS/txt2json.py -i $WORKDIR/data.txt -o $TOUTPUT/tdata.json -c "$COMMENT"
+  python3 $TOOLS/txt2json.py -i $WORKDIR/data.txt -o $WORKDIR/tdata.json -c "$COMMENT"
 else
-  python3 $TOOLS/txt2json.py -i $WORKDIR/data.txt -o $TOUTPUT/tdata.json
+  python3 $TOOLS/txt2json.py -i $WORKDIR/data.txt -o $WORKDIR/tdata.json
 endif
 
 #Add the title to data.json
-cat $TOUTPUT/tdata.json | jq --arg title "$TITLE" '.properties += {TITLE: $title}' > $TOUTPUT/data.json
-rm $TOUTPUT/tdata.json
+cat $WORKDIR/tdata.json | jq --arg title "$TITLE" '.properties += {TITLE: $title}' > $WORKDIR/data.json
+rm $WORKDIR/tdata.json
 
-#Annotate data.json with rama-angles
+#Annotate data.json with rama-angles or just copy it over
 if ($GOT_PROT == T) then
-  cp $TOUTPUT/versions.json $WORKDIR/versions.json.bak && jq '.software."rama-angles".used |= true' $WORKDIR/versions.json.bak > $TOUTPUT/versions.json
-  $TOOLS/rama-angles -v $TOUTPUT >& $WORKDIR/rama-angles.log
+  $TOOLS/rama-angles -v $WORKDIR/${PDBID}_0cyc.cif.gz $WORKDIR/${PDBID}_final.cif $WORKDIR/data.json $TOUTPUT/data.json >& $WORKDIR/rama-angles.log
+  if ($status) then
+    mv $WORKDIR/data.json $TOUTPUT/data.json
+  else
+    cp $TOUTPUT/versions.json $WORKDIR/versions.json.bak && jq '.software."rama-angles".used |= true' $WORKDIR/versions.json.bak > $TOUTPUT/versions.json
+  endif 
+else
+  cp $WORKDIR/data.json $TOUTPUT/data.json
 endif
 
 #Keep a long-term copies for FAIRness

@@ -13,6 +13,7 @@
 # - A list of compounds that can be translated to their parent cannonical amino acid in fasta files
 # - A list of residues that can be added to the parent chain's TLS group
 # - A list of compounds that are to be excluded from HalBS calculations
+# - A list of residues that can be ignored/deleted to allow for (re-)building more important compounds.
 
 data_PDB_REDO_DAT
 # 
@@ -2232,6 +2233,7 @@ NBU
 NBZ
 PE3
 PGE
+PGO
 TAR
 VO4
 XDL
@@ -3894,4 +3896,17 @@ ZN7
 ZN8
 ZN9
 ZPT
+#
+#A list of residues that can be ignored/deleted to allow for (re-)building more important compounds.
+loop_
+_build_overrule.comp_id 
+DMS
+DOD
+EDO
+EOH
+GOL
+HOH
+PEG
+PGE
+SO4
 #

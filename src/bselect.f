@@ -1,6 +1,6 @@
       PROGRAM BSELECT
 C=======================================================================
-C  Version 3.04 2024-06-13
+C  Version 3.05 2025-12-20
 C  Compares two different types of B-factor refinement and returns the 
 C  best one. Dedicated software, not for general use!
 C
@@ -35,6 +35,8 @@ C    Perrakis: "PDB_REDO: constructive validation, more than just
 C    looking for errors" Acta Cryst. D68, p. 484-496 (2012)
 C
 C  Version history:
+C  3.05:
+C  - Robustness fix for really extreme Refmac failures.
 C  3.04:
 C  - Fix for format change in Refmacat output.
 C  3.03:
@@ -126,7 +128,7 @@ C=======================================================================
 C-----Declare the basic variables and parameters
       INTEGER   I, J, K, T, N, STATUS, MAXLIN, STEPS
       CHARACTER VERS*4
-      PARAMETER (VERS='3.04')
+      PARAMETER (VERS='3.05')
 C-----MAXLIN is the maximum number of lines in the logfile
       PARAMETER (MAXLIN=90000)
       CHARACTER LOG1*255, LOG2*255, LINE*100, C2JUNK*2, BTYPEF*6, 
@@ -414,7 +416,8 @@ C       Special case. Here the Hamilton test won't work.
       END IF
 
 C-----Get the ratio 
-      IF ((ABS(RFACTW(T)).GE.1.00).OR.(ABS(RFACTW(N)).GE.1.00)) THEN
+      IF (ISNAN(RFACTW(T)).OR.ISNAN(RFACTW(N)).OR.
+     +    (ABS(RFACTW(T)).GE.1.00).OR.(ABS(RFACTW(N)).GE.1.00)) THEN
           RATIO = -1
       ELSE
           RATIO = RFACTW(T)/RFACTW(N)
@@ -533,8 +536,10 @@ C          END IF
         BTEST(1) = 'NULL  '
       END IF
 
-80    IF(VERBOS.EQV..TRUE.)THEN  
-        IF (TLSMOD.EQV..TRUE.) THEN
+80    IF(VERBOS.EQV..TRUE.)THEN
+        IF (BTEST(1) .EQ. 'NULL  ') THEN
+          WRITE(UNIT=6,FMT=908) 'Best B-factor type:  ', BTEST(1) 
+        ELSE IF (TLSMOD.EQV..TRUE.) THEN
           WRITE(UNIT=6,FMT=908) 'Best TLS model in : ', BTEST(1)
         ELSE     
           WRITE(UNIT=6,FMT=902) 'Weights acceptable: ', ACCEPT*100,'%'
@@ -555,7 +560,8 @@ C-----Calculate R-free/R ratio, sigma(R-free) and Z(R-free)
 
 C-------Is the complex model (N) overfitted?
 C       Reject the test if the R-free/R ratio cannot be calculated      
-        IF ((RRAT(N).GE.5.0).OR.(RRAT(T).GE.5.0)) THEN
+        IF (ISNAN(RRATZ(N)).OR.ISNAN(RRATZ(T)).OR.
+     +   (RRAT(N).GE.5.0).OR.(RRAT(T).GE.5.0)) THEN
           BTEST(2) = 'NULL  '
         ELSE
           IF (RRATZ(N).GE.ZCUTOFF) THEN
@@ -578,7 +584,7 @@ C-------Report
           WRITE(6,*) ' '
           WRITE(UNIT=6,FMT=905) 'R-free/R Z-score test:'
           WRITE(UNIT=6,FMT=905) '--------------------'
-          IF((RRAT(1).GT.5.0).OR.(RRAT(2).GT.5.0)) THEN
+          IF(BTEST(2) .EQ. 'NULL  ') THEN
             WRITE(UNIT=6,FMT=905)'Expected R-free/R in log1:   N/A'
             WRITE(UNIT=6,FMT=905)'Expected R-free/R in log2:   N/A'
             WRITE(UNIT=6,FMT=904)'sigma(R-free/R) in log1  :   N/A'
@@ -608,7 +614,9 @@ C-----Let the maximal R-free - R difference depend on the B-factor type
         END IF
 
 C-----Test the difference
-        IF ((RFREE(N)-RFACT(N)).GT.DLIMIT) THEN
+        IF (ISNAN(RFACT(N)).OR.ISNAN(RFACT(T))) THEN
+          BTEST(3) = 'NULL  '
+        ELSE IF ((RFREE(N)-RFACT(N)).GT.DLIMIT) THEN
 C         Difference too large; see if the difference is better in 
 C         the simple model
           IF ((RFREE(T)-RFACT(T)).GT.(RFREE(N)-RFACT(N))) THEN
@@ -670,8 +678,10 @@ C     the drop in R-free > 0.5*sigma(R-free)
         END IF  
       END IF  
         
-C-----Is the exchange rate acceptable      
-      IF (EXCHR.LT.0.5) THEN
+C-----Is the exchange rate acceptable
+      IF (ISNAN(EXCHR)) THEN
+        BTEST(4) = 'NULL  '
+      ELSE IF (EXCHR.LT.0.5) THEN
 C       R-free went down much less than R
         BTEST(4) = BTYPE(T)
       ELSE IF ((RFREE(T).EQ.RFREE(N)).AND.(RFACT(T).EQ.RFACT(N))) THEN
@@ -864,15 +874,15 @@ C-------Stop at the end of the table
         IF(LINE(1:10).EQ.'----------') GO TO 40
 C-------Get the values
         IF(LINE(1:16).EQ.'Overall R factor') THEN
-          READ(UNIT=LINE(44:49), FMT=*, ERR=21) R     
+          READ(UNIT=LINE(44:53), FMT=*, ERR=21) R     
         ELSE IF (LINE(1:13).EQ.'Free R factor') THEN
-          READ(UNIT=LINE(44:49), FMT=*, ERR=21) RFREE
+          READ(UNIT=LINE(44:53), FMT=*, ERR=21) RFREE
         ELSE IF (LINE(1:26).EQ.'Overall weighted R2 factor') THEN
-          READ(UNIT=LINE(44:49), FMT=*, ERR=21) WR
+          READ(UNIT=LINE(44:53), FMT=*, ERR=21) WR
         ELSE IF (LINE(1:23).EQ.'Free weighted R2 factor') THEN
-          READ(UNIT=LINE(44:49), FMT=*, ERR=21) WRFREE
+          READ(UNIT=LINE(44:53), FMT=*, ERR=21) WRFREE
         ELSE IF(LINE(1:26).EQ.'Number of used reflections') THEN
-          READ(LINE(39:49), FMT=*, ERR=21) NREF
+          READ(LINE(39:53), FMT=*, ERR=21) NREF
         END IF
 10    CONTINUE
 
