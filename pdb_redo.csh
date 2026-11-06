@@ -152,13 +152,23 @@ endif
 # - DNATCO         Validation of nucleic acid models
 #
 ####################################################### Change log #######################################################
-set VERSION = '8.22' #PDB-REDO version
+set VERSION = '8.23' #PDB-REDO version
 
+# Version 8.23:
+# - Added support for data coming from STARANISO.
+# - Elliptical resolution is now always calculated with a new tool called Compel.
+# - Elliptical data truncation is used when the reported completeness is likely the elliptical completeness. This reduces
+#   model bias in the maps.
+#
 # Version 8.22:
 # - Updated the code to move all mmcql runs to the new version.
 # - Bugfix in sidechain flipping (credit to Vincent Chen)
 # - Format updates for extractor output. 
 # - Inproved catch for extractor errors.
+# - Bugfix in the halogen bond annotation.
+# - Bugfix for using PDBpeep.
+# - Major rewrite of distel.py that gave drastic improvements in speed.
+# - Added a first version of validation of metal sites detected by platonyzer.
 #
 # Version 8.21:
 # - Added more informative error message for restraint generation issues.
@@ -759,6 +769,8 @@ set PREPPERRETRY = 0            #Number of prepper retries
 set CELLUPDATE   = 0            #Were the cell dimensions in the model updated
 set BOXSCALE     = 1.0          #Default correction for box sizes (EM only)
 set ISEM         = 0            #Assume it is not an EM structure model
+set ISSTARANISO  = 0            #By default the data are not treated as coming from STARANISO
+set DSHAPE       = 'sphere'     #The data are treated as spherical
 set NEWREST      = 0            #No new restraints made yet
 set GOTPDB       = 0            #Assume the model cannot be cast to PDB format
 set LIG5         = 0            #No compounds with 5-character compound id.
@@ -881,8 +893,8 @@ endif
 
 #Write out header
 echo " __   __   __     __   ___  __   __    _    __  __  " | tee -a $LOG
-echo "|__) |  \ |__) _ |__) |__  |  \ /  \  (_)    _)  _) " | tee -a $LOG
-echo "|    |__/ |__)   |  \ |___ |__/ \__/  (_) o /__ /__ " | tee -a $LOG
+echo "|__) |  \ |__) _ |__) |__  |  \ /  \  (_)    _) __) " | tee -a $LOG
+echo "|    |__/ |__)   |  \ |___ |__/ \__/  (_) o /__ __) " | tee -a $LOG
 echo " "
 
 #Font for the header
@@ -1939,6 +1951,13 @@ if ($NOSF == 0) then
           endif
           cd $BASE
           exit(1)
+        endif
+        
+        #Check for flags from Staraniso
+        if (`grep -c 'SA_flag' $WORKDIR/kollumer.log` > 0) then
+          set ISSTARANISO = 1
+          set DSHAPE = 'staraniso'
+          echo "-Using STARANISO flags to filter the data." | tee -a $LOG
         endif
 
         #Convert the MTZ file to mmCIF. PROGRAM: mtz2various
@@ -3006,6 +3025,31 @@ eof
 eof
 endif
 
+#Filter reflections based on SA_flag
+if ($ISSTARANISO == 1) then
+  mv $WORKDIR/merged.mtz $WORKDIR/unfiltered.mtz
+
+  #Add the SA_flag form the input file
+  cad \
+  HKLIN2 $MTZIN \
+  HKLIN1 $WORKDIR/unfiltered.mtz \
+  HKLOUT $WORKDIR/SAflagged.mtz \
+<<eof >> $WORKDIR/mtz_creation.log
+    LABIN FILE 2  E1=SA_flag
+    LABIN FILE 1  ALLIN
+    END
+eof
+
+  #Filter the reflections
+  sftools << eof >>& $WORKDIR/SAfilter.log
+    read $WORKDIR/SAflagged.mtz
+    select minus col SA_flag = absent
+    write $WORKDIR/merged.mtz
+    stop
+eof
+
+endif
+
 #Clean up
 rm $WORKDIR/combined.mtz
 
@@ -3225,6 +3269,16 @@ else
   set TWINA     = ""
   set COMPLETED = `mtzdmp $WORKDIR/lowres.mtz | grep '  FP' | awk '{print $6}'`
 endif
+
+#Get the ellipsoidal completeness and also make the ellipsoidal mtz file
+$TOOLS/compel.py $WORKDIR/$PDBID.mtz --trim $WORKDIR/${PDBID}_ellipsoid.mtz >& $WORKDIR/compel.log
+#If the resoltution cut-off is different from the data resolution use the lowres.mtz to calculate the completeness
+if (`echo $RESOLUTION $DATARESH | awk '{if ($1 - $2 > 0.10) {print "1"} else {print "0"}}'` == 1) then
+  $TOOLS/compel.py $WORKDIR/lowres.mtz >& $WORKDIR/compel_lowres.log
+  set COMPLETEDEL = `grep 'Fraction with valid FP' $WORKDIR/compel_lowres.log | awk '{print $7}' | tr -d '%'`
+else  
+  set COMPLETEDEL = `grep 'Fraction with valid FP' $WORKDIR/compel.log | awk '{print $7}' | tr -d '%'`
+endif  
   
 #User Phaser to check for twinning and for suspicious reflections. PROGRAM: PHASER
 phaser \
@@ -3274,9 +3328,6 @@ else
   endif
   
 endif
-
-
-
 
 #Get the correct number of (R-free) reflections
 mtz2various \
@@ -3366,12 +3417,13 @@ echo "Work set size        : $WORKCNT"  | tee -a $LOG
 echo "Test set size (data) : $TSTCNT ($TSTPRC%)" | tee -a $LOG
 echo "Test set size (used) : $NTSTCNT"   | tee -a $LOG
 if ($COMPLETEH == '?' || $COMPLETEH == '') then
-  echo "Completeness (pdb)   : NA" | tee -a $LOG
+  echo "Completeness (header): NA" | tee -a $LOG
   set COMPLETEH = 0.0
 else
-  echo "Completeness (pdb)   : $COMPLETEH" | tee -a $LOG
+  echo "Completeness (header): $COMPLETEH" | tee -a $LOG
 endif  
-echo "Completeness (used)  : $COMPLETED" | tee -a $LOG
+echo "Completeness (sphere): $COMPLETED" | tee -a $LOG
+echo "Completeness (ellip.): $COMPLETEDEL" | tee -a $LOG
 echo "Wavelength           : $WAVELENGTH"| tee -a $LOG
 if ($TWINA != "") then
   echo "Twin fraction alpha  : $TWINA"   | tee -a $LOG
@@ -3388,18 +3440,17 @@ echo " " | tee -a $LOG
 
 #Stop if the completeness is too low (less than 20% or less than two thirds of reported completeness), but not if paired refinement is forced
 if ($FORCEPAIRED == 0 && `echo $COMPLETED $COMPLETEH | awk '{if ($1 < 20.0) {DIFF = ($1 - $2); if (DIFF < 0) {DIFF = -1*DIFF}; if (DIFF < 2.5) {print "0"} else {print "1"}} else if ($1 < 0.67*$2) {print "1"} else {print "0"}}'` == 1) then
-  #If this is a PDB entry check PDBpeep to see if the reported completeness is the ellipsoidal value
-  if ($LOCAL == 0) then
-    #Get the ellipsoidal completeness from PDBpeep
-    $WEBGET -q https://staraniso.globalphasing.org/PDB/${PDBID}-1.log -O $WORKDIR/PDBpeep.log
-    set ELLCOMP = `grep 'All data' $WORKDIR/PDBpeep.log | head -n 1 | awk '{print 100*$14}'`
-    if (`echo $ELLCOMP $COMPLETEH | awk '{DIFF = ($1 - $2); if (DIFF < 0) {DIFF = -1*DIFF}; if (DIFF < 5.0) {print "0"} else {print "1"}}'` == 1) then
-      #There a real problem with the dataset completeness
-      set COMPERROR = 1
-    endif
-  else 
-    #The completeness is suspicious
+  #The spherical completeness does not match
+  echo "-The spherical completeness of the data does not match the reported value" | tee -a $LOG
+  #Check the ellipsoidal completeness, it should be less than 10 percentage points smaller than the reported value
+  if (`echo $COMPLETEDEL $COMPLETEH | awk '{if (($1 - $2) >= -10) {print "0"} else {print "1"}}'` == 1) then
+    #There a real problem with the dataset completeness
     set COMPERROR = 1
+  else
+    echo "-The date are very anisotropic and will be treated as such" | tee -a $LOG
+    echo " " | tee -a $LOG
+    set DSHAPE = 'ellipsoid'
+    cp $WORKDIR/${PDBID}_ellipsoid.mtz $WORKDIR/$PDBID.mtz 
   endif
 endif  
     
@@ -3416,6 +3467,7 @@ if ($COMPERROR == 1) then
   cd $BASE
   exit(1)
 endif
+
 
 echo "****** R(-free) recalculation ******" | tee -a $LOG
 
@@ -4004,147 +4056,6 @@ eof
 
 endif
 
-
-# #Check the fit with the data. If it is poor, try rigid-body refinement.
-# if ($DORB == 1 && $RFACT != "NA" &&`$TOOLS/fitr $RFACT $RFREE $RCAL $RFCAL` == 0) then #R-factors do not fit, try rigid-body refinement.
-# 
-#   #Create a backup
-#   cp $WORKDIR/${PDBID}_0cyc.log $WORKDIR/${PDBID}_0cycv5.log
-# 
-#   #Do $RBCYCLE cycles of rigid body refinement
-#   echo " o Problem reproducing the R-factors"  | tee -a $LOG
-#   echo -n "-Trying rigid-body refinement " | tee -a $LOG
-# 
-# 
-#   #Set up NCS
-#   if ($STRICTNCS == 1) then
-#     set RBNCS = ncsconstraints
-#   endif
-# 
-#   #Run Refmac
-#   refmacat \
-#   --keep_entities \
-#   XYZIN $WORKDIR/${PDBID}_c2f.cif \
-#   XYZOUT $WORKDIR/${PDBID}_refmacrb.cif \
-#   HKLIN $WORKDIR/$PDBID.mtz \
-#   HKLOUT $WORKDIR/${PDBID}_refmacrb.mtz \
-#   $LIBLIN \
-#   $SCATLIN \
-# <<eof > $WORKDIR/${PDBID}_rb.log
-#     $SCATTERCMD
-#     make check NONE
-#     make hydrogen $HYDROGEN hout NO peptide NO cispeptide YES -
-#       ssbridge $SSBOND $RSYMM $SUGAR $CONNECTIVITY link NO
-#     refi type RIGID resi MLKF meth CGMAT
-#     $REFIRES
-#     mode rigid
-#     rigid ncycle $RBCYCLE
-#     scal type $SOLVENT $SCALING
-#   #  scale lsscale function lsq
-#     solvent YES
-#     $MASKPAR
-#     $LOWMEM
-#     weight $WGTSIG MATRIX 0.5
-#     monitor MEDIUM torsion 10.0 distance 10.0 angle 10.0 plane 10.0 -
-#       chiral 10.0  bfactor 10.0 bsphere  10.0 rbond 10.0 ncsr  10.0
-#     $RBNCS
-#     $TWIN
-#     labin  FP=FP SIGFP=SIGFP FREE=FREE $PHASES $ANOMCOEF
-#     $ANOMCMD
-#     pdbout copy remarks 200 280 350
-#     pdbout copy expdta
-#     NOHARVEST
-#     END
-# eof
-#   if ($status) then
-#     echo " " | tee -a $LOG
-#     echo " o Problem with refmac. Cannot continue." | tee -a $LOG
-#     echo "COMMENT: refmac: error in rigid-body refinement" >> $WHYNOT
-#     echo "PDB-REDO,$PDBID"                                 >> $WHYNOT
-#     if ($SERVER == 1) then
-#       #Write out status files
-#       touch $STDIR/stoppingProcess.txt
-#       touch $STDIR/processStopped.txt
-#     endif
-#     cd $BASE
-#     exit(1)
-#   endif
-# 
-#   #Now do another restrained refinement run to include the TLS contribution (if needed)
-#   if ($ORITLS == 1) then
-#     refmacat \
-#     --keep_entities \
-#     XYZIN  $WORKDIR/${PDBID}_refmacrb.cif \
-#     XYZOUT $WORKDIR/${PDBID}_0cyc.cif \
-#     HKLIN  $WORKDIR/$PDBID.mtz \
-#     HKLOUT $WORKDIR/${PDBID}_0cyc.mtz \
-#     $TLSLIN \
-#     $LIBLIN \
-#     $SCATLIN \
-# <<eof > $WORKDIR/${PDBID}_0cyc.log
-#       $SCATTERCMD
-#       make check NONE
-#       make hydrogen $HYDROGEN hout NO peptide NO cispeptide YES -
-#         ssbridge $SSBOND $RSYMM $SUGAR $CONNECTIVITY link NO
-#       refi type REST resi MLKF meth CGMAT bref MIXE
-#       $REFIRES
-#       ncyc 0
-#       tlsd waters exclude
-#       scal type $SOLVENT $SCALING
-#  #     scale lsscale function lsq
-#       solvent YES
-#       $MASKPAR
-#       $LOWMEM
-#       weight $WGTSIG MATRIX 0.5
-#       monitor MEDIUM torsion 10.0 distance 10.0 angle 10.0 plane 10.0 -
-#         chiral 10.0  bfactor 10.0 bsphere  10.0 rbond 10.0 ncsr  10.0
-#       $NCSTYPE
-#       $NCSALIGN
-#       $NCSNEIGH
-#       $NCSSTRICT
-#       $TWIN
-#       labin FP=FP SIGFP=SIGFP FREE=FREE $PHASES $ANOMCOEF
-#       $ANOMCMD
-#       pdbout copy remarks 200 280 350
-#       pdbout copy expdta
-#       NOHARVEST
-#       END
-# eof
-#     if ($status) then
-#       echo " " | tee -a $LOG
-#       echo " o Problem with refmac. Cannot continue." | tee -a $LOG
-#       echo "COMMENT: refmac: error in initial R-free calculation" >> $WHYNOT
-#       echo "PDB-REDO,$PDBID"                                      >> $WHYNOT
-#       if ($SERVER == 1) then
-#         #Write out status files
-#         touch $STDIR/stoppingProcess.txt
-#         touch $STDIR/processStopped.txt
-#       endif
-#       cd $BASE
-#       exit(1)
-#     endif
-# 
-#     #Evaluate log file
-#     set RCAL  = `grep -B 2 'Final results' $WORKDIR/${PDBID}_0cyc.log | head -n 1 | awk '{print $2}'`
-#     set RFCAL = `grep -B 2 'Final results' $WORKDIR/${PDBID}_0cyc.log | head -n 1 | awk '{print $3}'`
-#   else
-#     #Evaluate log file from the rigid body refinement
-#     set RCAL  = `grep -B 2 'Final results' $WORKDIR/${PDBID}_rb.log | head -n 1 | awk '{print $2}'`
-#     set RFCAL = `grep -B 2 'Final results' $WORKDIR/${PDBID}_rb.log | head -n 1 | awk '{print $3}'`
-# 
-#     #Use the MTZ file from the rigid-body refinement
-#     cp $WORKDIR/${PDBID}_refmacrb.mtz $WORKDIR/${PDBID}_0cyc.mtz
-#   endif
-# 
-#   #Fill the line with the R-free value
-#   echo "(R-free = $RFCAL)" | tee -a $LOG
-# 
-#   #Copy files so that the rigid-body refined model is used
-#   cp $WORKDIR/${PDBID}_refmacrb.cif $WORKDIR/${PDBID}_0cyc.cif
-#   
-# else  
-#   cp $WORKDIR/${PDBID}_0cyc.cif $WORKDIR/${PDBID}_refmacrb.cif
-# endif
 
 #Check the fit with the data. If it is poor, try short TLS-refinement
 if (`$TOOLS/fitr $RFACT $RFREE $RCAL $RFCAL` == 0) then
@@ -7319,24 +7230,35 @@ endif
 
 
 #Run distel if needed
-if ($NHOMOLREST > 0 || $NHBONDREST > 0) then
+if ($NHOMOLREST > 0 || $NHBONDREST > 0 || $NMETALREST > 0) then
   #Consolidate the distance restraints
   if (-e $WORKDIR/homology.rest) then
-    cat $WORKDIR/homology.rest > $WORKDIR/allhb.rest
+    cat $WORKDIR/homology.rest > $WORKDIR/metalhb.rest
   endif
   if (-e $WORKDIR/hbond.rest) then
-    cat $WORKDIR/hbond.rest >> $WORKDIR/allhb.rest
+    cat $WORKDIR/hbond.rest >> $WORKDIR/metalhb.rest
+  endif
+  #Add metal restraints if available
+  if (-e $WORKDIR/metal.rest) then
+    cat $WORKDIR/metal.rest >> $WORKDIR/metalhb.rest
   endif
   
   #Calculate rmsZ values. PROGRAM: distel.py
-  set OHRMSZ = `$TOOLS/distel.py $WORKDIR/${PDBID}_0cyc.cif    $WORKDIR/allhb.rest | tail -n 1 | awk '{print $4}'`
-  set NHRMSZ = `$TOOLS/distel.py $WORKDIR/${PDBID}_besttls.cif $WORKDIR/allhb.rest | tail -n 1 | awk '{print $4}'`
+  cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.distel.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
+  $TOOLS/distel.py $WORKDIR/${PDBID}_0cyc.cif    $WORKDIR/metalhb.rest > $WORKDIR/distel_0cyc.log
+  $TOOLS/distel.py $WORKDIR/${PDBID}_besttls.cif $WORKDIR/metalhb.rest > $WORKDIR/distel_besttls.log
+  set OHRMSZ = `grep 'Distance restraint rmsZ' $WORKDIR/distel_0cyc.log    | awk '{print $4}'`
+  set OMRMSZ = `grep 'Angle restraint rmsZ'    $WORKDIR/distel_0cyc.log    | awk '{print $4}'`
+  set NHRMSZ = `grep 'Distance restraint rmsZ' $WORKDIR/distel_besttls.log | awk '{print $4}'`
+  set NMRMSZ = `grep 'Angle restraint rmsZ'    $WORKDIR/distel_besttls.log | awk '{print $4}'`
 
   #Clean up
-  rm $WORKDIR/allhb.rest
+  rm $WORKDIR/metalhb.rest
 else 
   set OHRMSZ = 'NA'
   set NHRMSZ = 'NA'
+  set OMRMSZ = 'NA'
+  set NMRMSZ = 'NA'
 endif
 
 
@@ -7369,8 +7291,9 @@ if ($GOT_NUC == 'T') then
   if (-e $WORKDIR/bphbond.rest) then
     if (`grep -c 'exte dist' $WORKDIR/bphbond.rest` > 0) then
       echo " o Validating base pairs" | tee -a $LOG
-      set OBPHBRMSZ = `$TOOLS/distel.py $WORKDIR/${PDBID}_0cyc.cif    $WORKDIR/bphbond.rest | tail -n 1 | awk '{print $4}'`
-      set NBPHBRMSZ = `$TOOLS/distel.py $WORKDIR/${PDBID}_besttls.cif $WORKDIR/bphbond.rest | tail -n 1 | awk '{print $4}'`
+      cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.distel.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
+      set OBPHBRMSZ = `$TOOLS/distel.py $WORKDIR/${PDBID}_0cyc.cif    $WORKDIR/bphbond.rest | grep 'Distance restraint rmsZ' | awk '{print $4}'`
+      set NBPHBRMSZ = `$TOOLS/distel.py $WORKDIR/${PDBID}_besttls.cif $WORKDIR/bphbond.rest | grep 'Distance restraint rmsZ' | awk '{print $4}'`
     endif  
     
     #Run nucrmsz and get out the results
@@ -7478,6 +7401,9 @@ if ($ORCARB != 'NA' || $NRCARB != 'NA') then
 endif
 if ($OZCARB != 'NA' || $NZCARB != 'NA') then
   echo "Glycosidic linkage Z-score         : $OZCARB $NZCARB"  | tee -a $LOG
+endif
+if ($OMRMSZ != 'NA' || $NMRMSZ != 'NA') then
+  echo "Zn/Na/Mg site RMS Z-score          : $OMRMSZ $NMRMSZ"  | tee -a $LOG
 endif
 if ($GOT_NUC == 'T') then
   echo " " | tee -a $LOG
@@ -8890,15 +8816,16 @@ if ($BUILT == 0) then
   set BLTBEST = 'skip'
 
   #Copy refinement results
-  set RFIN       = $RTLS
-  set RFFIN      = $RFTLS
-  set RFFINUNB   = $RFTLSUNB
-  set SIGRFFIN   = $SIGRFTLS
-  set RFFINZ     = $RFTLSZ
-  set ZRFRRATFIN = $ZRFRRATTLS
-  set FSCWFIN    = $FSCWTLS
-  set FSCFFIN    = $FSCFTLS
-  set LLFFIN     = `grep -B 2 'Final results' $WORKDIR/${PDBID}_final.log | head -n 1 | awk '{print $6}'`
+  set RFIN        = $RTLS
+  set RFFIN       = $RFTLS
+  set RFFINUNB    = $RFTLSUNB
+  set SIGRFFIN    = $SIGRFTLS
+  set RFFINZ      = $RFTLSZ
+  set ZRFRRATFIN  = $ZRFRRATTLS
+  set FSCWFIN     = $FSCWTLS
+  set FSCFFIN     = $FSCFTLS
+  set LLFFIN      = `grep -B 2 'Final results' $WORKDIR/${PDBID}_final.log | head -n 1 | awk '{print $6}'`
+  set NMETALREST2 = $NMETALREST
 
 else
    
@@ -9604,6 +9531,9 @@ if ($BUILT == 0) then
   set FHBSAT  = $NHBSAT
   set FRCARB  = $NRCARB
   set FZCARB  = $NZCARB
+  
+  #Copy the HalBS logfile from besttls model
+  cp $WORKDIR/halbs_besttls.log $WORKDIR/halbs_final.log
 else
   #Run tortoize
   echo "-Validating the final model with tortoize" | tee -a $LOG
@@ -9767,32 +9697,47 @@ else
 endif
 
 #Run distel if needed (note that the restraints may have changed so the rmsZ values may be different)
-if ($NHOMOLREST > 0 || $NHBONDREST > 0) then
+if ($NHOMOLREST > 0 || $NHBONDREST > 0 || $NMETALREST2 > 0) then
   cp $WORKDIR/versions.json $WORKDIR/versions.json.bak && jq '.software.distel.used |= true' $WORKDIR/versions.json.bak > $WORKDIR/versions.json
   
   #Consolidate the distance restraints
   if (-e $WORKDIR/homology.rest) then
-    cat $WORKDIR/homology.rest > $WORKDIR/allhb.rest
+    cat $WORKDIR/homology.rest > $WORKDIR/metalhb.rest
   endif
   if (-e $WORKDIR/hbond.rest) then
-    cat $WORKDIR/hbond.rest >> $WORKDIR/allhb.rest
+    cat $WORKDIR/hbond.rest >> $WORKDIR/metalhb.rest
   endif
-  #Onlyu recalculate if there was post-rebuilding refinement
+  #Add metal restraints if available
+  if (-e $WORKDIR/metal.rest) then
+    cat $WORKDIR/metal.rest >> $WORKDIR/metalhb.rest
+  endif
+  
+  #Only recalculate if there was post-rebuilding refinement
   if ($BUILT == 0) then
     #Copy over value
     set FHRMSZ = $NHRMSZ
+    set FMRMSZ = $NMRMSZ
   else
-    echo "-Validating homology" | tee -a $LOG
+    echo "-Validating homology and metal sites" | tee -a $LOG
     #Calculate rmsZ values. 
-    set OHRMSZ = `$TOOLS/distel.py $WORKDIR/${PDBID}_0cyc.cif    $WORKDIR/allhb.rest | tail -n 1 | awk '{print $4}'`
-    set NHRMSZ = `$TOOLS/distel.py $WORKDIR/${PDBID}_besttls.cif $WORKDIR/allhb.rest | tail -n 1 | awk '{print $4}'`
-    set FHRMSZ = `$TOOLS/distel.py $WORKDIR/${PDBID}_final.cif   $WORKDIR/allhb.rest | tail -n 1 | awk '{print $4}'`
+    $TOOLS/distel.py $WORKDIR/${PDBID}_0cyc.cif    $WORKDIR/metalhb.rest > $WORKDIR/distel_0cyc.log
+    $TOOLS/distel.py $WORKDIR/${PDBID}_besttls.cif $WORKDIR/metalhb.rest > $WORKDIR/distel_besttls.log
+    $TOOLS/distel.py $WORKDIR/${PDBID}_final.cif   $WORKDIR/metalhb.rest > $WORKDIR/distel_final.log
+    set OHRMSZ = `grep 'Distance restraint rmsZ' $WORKDIR/distel_0cyc.log    | awk '{print $4}'`
+    set OMRMSZ = `grep 'Angle restraint rmsZ'    $WORKDIR/distel_0cyc.log    | awk '{print $4}'`
+    set NHRMSZ = `grep 'Distance restraint rmsZ' $WORKDIR/distel_besttls.log | awk '{print $4}'`
+    set NMRMSZ = `grep 'Angle restraint rmsZ'    $WORKDIR/distel_besttls.log | awk '{print $4}'`
+    set FHRMSZ = `grep 'Distance restraint rmsZ' $WORKDIR/distel_final.log   | awk '{print $4}'`
+    set FMRMSZ = `grep 'Angle restraint rmsZ'    $WORKDIR/distel_final.log   | awk '{print $4}'`
   endif  
-  rm $WORKDIR/allhb.rest
+  rm $WORKDIR/metalhb.rest
 else 
   set OHRMSZ = 'NA'
   set NHRMSZ = 'NA'
   set FHRMSZ = 'NA'
+  set OMRMSZ = 'NA'
+  set NMRMSZ = 'NA'
+  set FMRMSZ = 'NA'
 endif
 
 #Nucleic acid validation
@@ -9813,9 +9758,9 @@ if ($GOT_NUC == 'T') then
   if (-e $WORKDIR/bphbond.rest) then
     if ($BUILT != 0 && `grep -c 'exte dist' $WORKDIR/bphbond.rest` > 0) then
       echo " o Validating base pairs" | tee -a $LOG
-      set OBPHBRMSZ = `$TOOLS/distel.py $WORKDIR/${PDBID}_0cyc.cif    $WORKDIR/bphbond.rest | tail -n 1 | awk '{print $4}'`
-      set NBPHBRMSZ = `$TOOLS/distel.py $WORKDIR/${PDBID}_besttls.cif $WORKDIR/bphbond.rest | tail -n 1 | awk '{print $4}'`
-      set FBPHBRMSZ = `$TOOLS/distel.py $WORKDIR/${PDBID}_final.cif   $WORKDIR/bphbond.rest | tail -n 1 | awk '{print $4}'`
+      set OBPHBRMSZ = `$TOOLS/distel.py $WORKDIR/${PDBID}_0cyc.cif    $WORKDIR/bphbond.rest | grep 'Distance restraint rmsZ' | awk '{print $4}'`
+      set NBPHBRMSZ = `$TOOLS/distel.py $WORKDIR/${PDBID}_besttls.cif $WORKDIR/bphbond.rest | grep 'Distance restraint rmsZ' | awk '{print $4}'`
+      set FBPHBRMSZ = `$TOOLS/distel.py $WORKDIR/${PDBID}_final.cif   $WORKDIR/bphbond.rest | grep 'Distance restraint rmsZ' | awk '{print $4}'`
     else
       #Just copy over values
       set FBPHBRMSZ = $NBPHBRMSZ
@@ -9975,6 +9920,9 @@ if ($ORCARB != 'NA' || $NRCARB != 'NA' || $FRCARB != 'NA') then
 endif
 if ($OZCARB != 'NA' || $NZCARB != 'NA' || $FZCARB != 'NA') then
   echo "Glycosidic linkage Z-score         : $OZCARB $NZCARB $FZCARB"  | tee -a $LOG
+endif
+if ($OMRMSZ != 'NA' || $NMRMSZ != 'NA' || $FMRMSZ != 'NA' ) then
+  echo "Zn/Na/Mg site RMS Z-score          : $OMRMSZ $NMRMSZ $FMRMSZ"  | tee -a $LOG
 endif
 if ($GOT_NUC == 'T') then
   echo " " | tee -a $LOG
@@ -10813,7 +10761,7 @@ echo -n "$WAVELENGTH $ISTWIN $SOLVD $EXPTYP $COMPLETED $NOPDB $NOSF $USIGMA $ZCA
 echo -n "$TOZPAK1 $TFZPAK1 $NLOOPS $NMETALREST2 $OSZRAMA $NSZRAMA $FSZRAMA $OSCHI12 $NSCHI12 $FSCHI12 $SRFRRAT $ZRFRRATCAL $ZRFRRATTLS $ZRFRRATFIN $GOT_PROT $GOT_NUC " >> $WORKDIR/data.txt
 echo -n "$NNUCLEICREST $OBPHBRMSZ $NBPHBRMSZ $FBPHBRMSZ $OSHEAR $NSHEAR $FSHEAR $OSTRETCH $NSTRETCH $FSTRETCH $OBUCKLE $NBUCKLE $FBUCKLE $OPROPEL $NPROPEL $FPROPEL $OCONFAL $NCONFAL $FCONFAL $TOCONFAL $TNCONFAL $TFCONFAL " >> $WORKDIR/data.txt
 echo -n "$ODNRMSD $NDNRMSD $FDNRMSD $OBPGRMSZ $NBPGRMSZ $FBPGRMSZ $TOBPGRMSZ $TFBPGRMSZ $FSCWCAL $FSCFCAL $FSCWTLS $FSCFTLS $FSCWFIN $FSCFFIN $GOT_CARB $BNET $PBNET $FIUSED $LLFFIN " >> $WORKDIR/data.txt
-echo    "$OCLASH $NCLASH $FCLASH $TOCLASH $TFCLASH $ONHALB $NNHALB $FNHALB $OHALBS $NHALBS $FHALBS $OZCARB $NZCARB $FZCARB $ORCARB $NRCARB $FRCARB $TOZCARB $TFZCARB"  >> $WORKDIR/data.txt 
+echo    "$OCLASH $NCLASH $FCLASH $TOCLASH $TFCLASH $ONHALB $NNHALB $FNHALB $OHALBS $NHALBS $FHALBS $OZCARB $NZCARB $FZCARB $ORCARB $NRCARB $FRCARB $TOZCARB $TFZCARB $COMPLETEDEL $DSHAPE"  >> $WORKDIR/data.txt 
 cp $WORKDIR/data.txt $TOUTPUT/
 if ($?COMMENT) then
   python3 $TOOLS/txt2json.py -i $WORKDIR/data.txt -o $WORKDIR/tdata.json -c "$COMMENT"

@@ -281,9 +281,9 @@ cp $VFILE $VFILE.tmp && jq '.software +={"mmcql":{ "version":$version, "used":tr
 set VERSION = `$TOOLS/tortoize --version | awk '{print $3}'`
 cp $VFILE $VFILE.tmp && jq '.software +={"tortoize":{ "version":$version, "used":true }}' --arg version $VERSION $VFILE.tmp > $VFILE
 # 
-# # 64) molrep
-# set VERSION = `molrep -h | grep Vers | awk '{print $3}' | tr -d ';'`
-# cp $VFILE $VFILE.tmp && jq '.software +={"molrep":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
+# 64) Compel
+set VERSION = `$TOOLS/compel.py --version | awk '{print $2}'`
+cp $VFILE $VFILE.tmp && jq '.software +={"Compel":{ "version":$version, "used":false }}' --arg version $VERSION $VFILE.tmp > $VFILE
 
 # 66) cif-grep
 set VERSION = `$TOOLS/cif-grep --version | awk '{print $3}'`

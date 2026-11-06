@@ -241,6 +241,8 @@ JSON_VAR['NRCARB'] = 'float'
 JSON_VAR['FRCARB'] = 'float'
 JSON_VAR['TOZCARB'] = 'int'
 JSON_VAR['TFZCARB'] = 'int'
+JSON_VAR['COMPLETEDEL'] = 'float'
+JSON_VAR['DSHAPE'] = 'str'
 
 # The data is space-delimited, except for the spacegroup between quotes
 RE_COL = re.compile(r"'[^']+'|[^'\s]+")
